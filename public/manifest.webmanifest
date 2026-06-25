@@ -1,0 +1,10 @@
+{
+  "name": "MiFi — Financial Freedom Platform",
+  "short_name": "MiFi",
+  "description": "Track income, crush debt, and build financial freedom.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#6366f1",
+  "icons": []
+}
