@@ -1,3 +1,5 @@
+import { convert } from './currency';
+
 export function getMonthlyTransactions(transactions) {
   const now = new Date();
   const m = now.getMonth();
@@ -8,17 +10,20 @@ export function getMonthlyTransactions(transactions) {
   });
 }
 
-export function computeTotals(transactions) {
+// Totals for the current month, all converted into the chosen base currency.
+// A transaction with no currency (legacy data) is treated as already in base.
+export function computeTotals(transactions, base, rates) {
   const monthly = getMonthlyTransactions(transactions);
+  const val = (t) => convert(t.amount, t.currency || base, base, rates);
   const activeIncome = monthly
     .filter((t) => t.type === 'income' && t.incomeType === 'active')
-    .reduce((s, t) => s + t.amount, 0);
+    .reduce((s, t) => s + val(t), 0);
   const passiveIncome = monthly
     .filter((t) => t.type === 'income' && t.incomeType === 'passive')
-    .reduce((s, t) => s + t.amount, 0);
+    .reduce((s, t) => s + val(t), 0);
   const totalExpenses = monthly
     .filter((t) => t.type === 'expense')
-    .reduce((s, t) => s + t.amount, 0);
+    .reduce((s, t) => s + val(t), 0);
   const totalIncome = activeIncome + passiveIncome;
   return {
     activeIncome,
@@ -29,10 +34,37 @@ export function computeTotals(transactions) {
   };
 }
 
-export function computeSolvency(passiveIncome, totalExpenses, totalDebtPayment) {
+// Solvency = total income (active + passive) vs this month's obligations
+// (expenses + debt payments). Inputs are already in base currency.
+export function computeSolvency(totalIncome, totalExpenses, totalDebtPayment) {
   const obligations = totalExpenses + totalDebtPayment;
   if (obligations <= 0) return 0;
-  return (passiveIncome / obligations) * 100;
+  return (totalIncome / obligations) * 100;
+}
+
+// Aggregate debt figures in base currency. Debts default to base when no
+// currency is set on them.
+export function computeDebtTotals(debts, base, rates) {
+  const totalDebt = debts.reduce((s, d) => s + convert(d.principal, d.currency || base, base, rates), 0);
+  const totalDebtPayment = debts.reduce((s, d) => s + convert(d.monthlyPayment, d.currency || base, base, rates), 0);
+  return { totalDebt, totalDebtPayment };
+}
+
+// Order debts by the chosen payoff strategy.
+// avalanche -> highest interest rate first. snowball -> smallest balance first
+// (compared in base currency so mixed-currency debts sort correctly).
+export function orderDebts(debts, strategy, base, rates) {
+  const arr = [...debts];
+  if (strategy === 'snowball') {
+    arr.sort(
+      (a, b) =>
+        convert(a.principal, a.currency || base, base, rates) -
+        convert(b.principal, b.currency || base, base, rates)
+    );
+  } else {
+    arr.sort((a, b) => (b.interestRate || 0) - (a.interestRate || 0));
+  }
+  return arr;
 }
 
 export function debtProgress(debt) {

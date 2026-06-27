@@ -10,7 +10,7 @@ const STARTERS = [
   'How can I increase my passive income?',
 ];
 
-export default function Mi({ uid, transactions, debts, messages, personality }) {
+export default function Mi({ uid, transactions, debts, messages, personality, base, rates, debtStrategy }) {
   const [input, setInput] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const endRef = useRef(null);
@@ -22,8 +22,8 @@ export default function Mi({ uid, transactions, debts, messages, personality }) 
     const msg = (text ?? input).trim();
     if (!msg) return;
     setInput('');
-    const totals = computeTotals(transactions);
-    const reply = generateMiResponse(msg, { ...totals, debts }, personality);
+    const totals = computeTotals(transactions, base, rates);
+    const reply = generateMiResponse(msg, { ...totals, debts }, personality, base, rates, debtStrategy);
     await addMessage(uid, { sender: 'user', text: msg });
     await addMessage(uid, { sender: 'mi', text: reply });
   };
@@ -44,7 +44,7 @@ export default function Mi({ uid, transactions, debts, messages, personality }) 
           <div className="grid grid-cols-2 gap-2">
             {Object.entries(PERSONALITIES).map(([key, val]) => (
               <button key={key} onClick={() => { setPersonality(uid, key); setShowSettings(false); }}
-                className={`p-3 rounded-lg border-2 text-left ${personality === key ? 'border-indigo-600 bg-indigo-50' : 'border-gray-200'}`}>
+                className={`p-3 rounded-lg border-2 text-left ${personality === key ? 'border-navy-600 bg-navy-50' : 'border-gray-200'}`}>
                 <div className="text-2xl mb-1">{val.emoji}</div>
                 <div className="text-sm font-medium text-gray-900">{val.name}</div>
               </button>
@@ -70,7 +70,7 @@ export default function Mi({ uid, transactions, debts, messages, personality }) 
         ) : (
           messages.map((m) => (
             <div key={m.id} className={`flex ${m.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[80%] p-4 rounded-2xl whitespace-pre-wrap ${m.sender === 'user' ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-white shadow text-gray-900 rounded-bl-none'}`}>
+              <div className={`max-w-[80%] p-4 rounded-2xl whitespace-pre-wrap ${m.sender === 'user' ? 'bg-navy-600 text-white rounded-br-none' : 'bg-white shadow text-gray-900 rounded-bl-none'}`}>
                 {m.text}
               </div>
             </div>
@@ -82,8 +82,8 @@ export default function Mi({ uid, transactions, debts, messages, personality }) 
       <div className="bg-white rounded-b-2xl shadow p-4">
         <form onSubmit={(e) => { e.preventDefault(); send(); }} className="flex gap-2">
           <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask Mi anything…"
-            className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-          <button type="submit" className="bg-indigo-600 text-white p-3 rounded-lg hover:bg-indigo-700"><Send className="w-6 h-6" /></button>
+            className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500" />
+          <button type="submit" className="bg-navy-600 text-white p-3 rounded-lg hover:bg-navy-700"><Send className="w-6 h-6" /></button>
         </form>
       </div>
     </div>

@@ -1,3 +1,5 @@
+import { convert, money } from './currency';
+
 export const PERSONALITIES = {
   genZ: { name: 'Gen Z Friend', emoji: '😎', color: 'from-purple-600 to-pink-600' },
   coolUncle: { name: 'Cool Uncle', emoji: '🤙', color: 'from-blue-600 to-cyan-600' },
@@ -5,8 +7,10 @@ export const PERSONALITIES = {
   professional: { name: 'Professional Advisor', emoji: '💼', color: 'from-gray-700 to-gray-900' },
 };
 
-export function getMiInsight(income, expenses, debts, personality) {
-  const totalDebt = debts.reduce((s, d) => s + d.principal, 0);
+export function getMiInsight(income, expenses, debts, personality, base, rates, strategy) {
+  const fmt = (n) => money(n, base, 0);
+  const first = strategy === 'snowball' ? 'smallest balance first' : 'highest interest first';
+  const totalDebt = debts.reduce((s, d) => s + convert(d.principal, d.currency || base, base, rates), 0);
 
   if (expenses > income) {
     return {
@@ -19,54 +23,59 @@ export function getMiInsight(income, expenses, debts, personality) {
 
   if (income > 0 && totalDebt > income * 3) {
     return {
-      genZ: `Your debt is lowkey wild rn ($${totalDebt.toFixed(0)}) 😳 But don't stress — we've got a plan. Tackle the highest-interest debt first and you'll be debt-free before you know it! 💪`,
-      coolUncle: `That debt load is looking a bit heavy, champ ($${totalDebt.toFixed(0)}). But hey, we've seen worse! Let's make a solid plan to knock it down. You've got this. 🎯`,
-      harsh: `$${totalDebt.toFixed(0)} in debt?! UNACCEPTABLE! Every day you wait is money down the drain. Attack it NOW. 💪🔥`,
-      professional: `Debt-to-income analysis indicates an elevated risk level ($${totalDebt.toFixed(0)} outstanding). An aggressive debt-reduction protocol is advised.`,
+      genZ: `Your debt is lowkey wild rn (${fmt(totalDebt)}) 😳 But don't stress — we've got a plan. Tackle the ${first} and you'll be debt-free before you know it! 💪`,
+      coolUncle: `That debt load is looking a bit heavy, champ (${fmt(totalDebt)}). But hey, we've seen worse! Let's make a solid plan to knock it down. You've got this. 🎯`,
+      harsh: `${fmt(totalDebt)} in debt?! UNACCEPTABLE! Every day you wait is money down the drain. Attack it NOW. 💪🔥`,
+      professional: `Debt-to-income analysis indicates an elevated risk level (${fmt(totalDebt)} outstanding). An aggressive debt-reduction protocol is advised.`,
     }[personality];
   }
 
   return {
-    genZ: 'Looking pretty solid this month! Keep it up, bestie 💸 Remember — passive income is the real flex, so keep building it! ✨',
+    genZ: 'Looking pretty solid this month! Keep it up, bestie 💸 Your income is covering your obligations — stay consistent and keep that cushion growing. ✨',
     coolUncle: "Nice work this month, kiddo! You're making good moves. Keep it up — and don't forget to treat yourself occasionally. Balance matters. 🌟",
     harsh: "Not terrible, but don't get comfortable. You should be doing BETTER. Push harder, earn more, waste less. MAXIMIZE EVERYTHING! 💪",
     professional: 'Current financial metrics are within acceptable parameters. Continue the disciplined approach and look for optimization opportunities.',
   }[personality];
 }
 
-export function generateMiResponse(question, data, personality) {
-  const { totalIncome, totalExpenses, passiveIncome, debts } = data;
+export function generateMiResponse(question, data, personality, base, rates, strategy) {
+  const { totalIncome, totalExpenses, debts } = data;
+  const fmt = (n) => money(n, base, 0);
+  const first = strategy === 'snowball' ? 'smallest balance first' : 'highest interest first';
+  const method = strategy === 'snowball'
+    ? 'snowball method (smallest balance first)'
+    : 'avalanche method (highest interest first)';
   const netBalance = totalIncome - totalExpenses;
-  const totalDebt = debts.reduce((s, d) => s + d.principal, 0);
-  const debtPayment = debts.reduce((s, d) => s + d.monthlyPayment, 0);
+  const totalDebt = debts.reduce((s, d) => s + convert(d.principal, d.currency || base, base, rates), 0);
+  const debtPayment = debts.reduce((s, d) => s + convert(d.monthlyPayment, d.currency || base, base, rates), 0);
   const obligations = totalExpenses + debtPayment;
-  const solvency = obligations > 0 ? (passiveIncome / obligations) * 100 : 0;
+  const solvency = obligations > 0 ? (totalIncome / obligations) * 100 : 0;
   const q = question.toLowerCase();
 
   if (q.includes('how am i doing') || (q.includes('financ') && q.includes('status')) || q.includes('how are my')) {
     if (netBalance >= 0) {
       return {
-        genZ: `Okay so like… you're actually doing pretty good rn! 💸 You're making $${totalIncome.toFixed(0)} and spending $${totalExpenses.toFixed(0)}, so you're up by $${netBalance.toFixed(0)}. That's lowkey fire ngl. Real talk though — passive income only covers about ${solvency.toFixed(0)}% of your obligations, so you're still leaning hard on that 9-5. Time to build those side hustles fr 📈`,
-        coolUncle: `Hey kiddo! Not bad at all. You're bringing in $${totalIncome.toFixed(0)} and keeping expenses at $${totalExpenses.toFixed(0)} — a $${netBalance.toFixed(0)} surplus. Proud of you! 🎉 Here's the thing: you're still trading time for most of that money. Let's build some passive income so you've got more freedom.`,
-        harsh: `Finally, something decent. You're $${netBalance.toFixed(0)} positive. Don't get comfortable though — passive income only covers ${solvency.toFixed(0)}% of your obligations. You should be at 100%+ by now. Stop celebrating mediocrity and MULTIPLY that passive income. 💪🔥`,
-        professional: `You're operating with a surplus of $${netBalance.toFixed(0)} this month (income $${totalIncome.toFixed(0)}, expenses $${totalExpenses.toFixed(0)}). Your solvency ratio is ${solvency.toFixed(1)}%, indicating meaningful dependence on active income. I recommend directing surplus toward passive-income development.`,
+        genZ: `Okay so like… you're actually doing pretty good rn! 💸 You're making ${fmt(totalIncome)} and spending ${fmt(totalExpenses)}, so you're up by ${fmt(netBalance)}. That's lowkey fire ngl. Your income covers about ${solvency.toFixed(0)}% of your obligations this month — keep that cushion healthy. 📈`,
+        coolUncle: `Hey kiddo! Not bad at all. You're bringing in ${fmt(totalIncome)} and keeping expenses at ${fmt(totalExpenses)} — a ${fmt(netBalance)} surplus. Proud of you! 🎉 Your income's covering about ${solvency.toFixed(0)}% of your obligations. Keep it steady.`,
+        harsh: `Finally, something decent. You're ${fmt(netBalance)} positive. Don't get comfortable though — income covers ${solvency.toFixed(0)}% of your obligations. Hold it at 100%+ and stack a buffer. 💪🔥`,
+        professional: `You're operating with a surplus of ${fmt(netBalance)} this month (income ${fmt(totalIncome)}, expenses ${fmt(totalExpenses)}). Income covers ${solvency.toFixed(1)}% of obligations. Maintain the surplus and direct it toward reserves and goals.`,
       }[personality];
     }
     return {
-      genZ: `Oof bestie… not gonna sugarcoat it 😬 You're spending $${Math.abs(netBalance).toFixed(0)} more than you're making. That's broke-era energy and we need to fix it ASAP. Trim some expenses or stack more income. You got this! 💪`,
-      coolUncle: `Alright, real talk, champ — you're in the red by $${Math.abs(netBalance).toFixed(0)} this month. Not sustainable, but fixable. Tighten the belt a little and maybe pick up a side gig. Broke is temporary; good habits last. Let's turn it around!`,
-      harsh: `Are you SERIOUS right now?! You're BLEEDING $${Math.abs(netBalance).toFixed(0)} this month! Cut the excuses, cut the expenses, and get it together. Every wasted dollar could've been working for you. DO BETTER. 😤`,
-      professional: `Your current trajectory is unsustainable — a deficit of $${Math.abs(netBalance).toFixed(0)}. Immediate actions: (1) audit and reduce expenses, (2) diversify income, (3) establish an emergency buffer. Disciplined correction is required.`,
+      genZ: `Oof bestie… not gonna sugarcoat it 😬 You're spending ${fmt(Math.abs(netBalance))} more than you're making. That's broke-era energy and we need to fix it ASAP. Trim some expenses or stack more income. You got this! 💪`,
+      coolUncle: `Alright, real talk, champ — you're in the red by ${fmt(Math.abs(netBalance))} this month. Not sustainable, but fixable. Tighten the belt a little and maybe pick up a side gig. Broke is temporary; good habits last. Let's turn it around!`,
+      harsh: `Are you SERIOUS right now?! You're BLEEDING ${fmt(Math.abs(netBalance))} this month! Cut the excuses, cut the expenses, and get it together. Every wasted dollar could've been working for you. DO BETTER. 😤`,
+      professional: `Your current trajectory is unsustainable — a deficit of ${fmt(Math.abs(netBalance))}. Immediate actions: (1) audit and reduce expenses, (2) diversify income, (3) establish an emergency buffer. Disciplined correction is required.`,
     }[personality];
   }
 
   if (q.includes('debt') || q.includes('saving')) {
     if (totalDebt > 0) {
       return {
-        genZ: `So you've got $${totalDebt.toFixed(0)} in debt… honestly? Kill that first, bestie 🎯 High-interest debt is literally stealing your future bag. Pay minimums on everything except the highest-interest one, then attack that like your life depends on it. Then we stack savings. Trust the process 💯`,
-        coolUncle: `Here's the wisdom I wish someone gave me younger, kiddo: that $${totalDebt.toFixed(0)} is working against you every day. Crush it using the avalanche method — highest interest first. Savings matter, but debt's the emergency. Kill it, then build wealth. 🙌`,
-        harsh: `Why is this even a question?! $${totalDebt.toFixed(0)} in DEBT! Forget savings — ATTACK that debt like your freedom depends on it, because it does. Highest interest first. No excuses. Execute. 💪🔥`,
-        professional: `You're carrying $${totalDebt.toFixed(0)} in debt. Prioritize elimination via the avalanche method (highest APR first) while maintaining minimums elsewhere. Compound interest works against you in debt and for you in investments — clear the liability first.`,
+        genZ: `So you've got ${fmt(totalDebt)} in debt… honestly? Kill that first, bestie 🎯 High-interest debt is literally stealing your future bag. Use the ${method} — pay minimums on the rest and attack one like your life depends on it. Then we stack savings. Trust the process 💯`,
+        coolUncle: `Here's the wisdom I wish someone gave me younger, kiddo: that ${fmt(totalDebt)} is working against you every day. Crush it using the ${method}. Savings matter, but debt's the emergency. Kill it, then build wealth. 🙌`,
+        harsh: `Why is this even a question?! ${fmt(totalDebt)} in DEBT! Forget savings — ATTACK that debt like your freedom depends on it, because it does. ${strategy === 'snowball' ? 'Smallest balance first' : 'Highest interest first'}. No excuses. Execute. 💪🔥`,
+        professional: `You're carrying ${fmt(totalDebt)} in debt. Prioritize elimination via the ${method} while maintaining minimums elsewhere. Compound interest works against you in debt and for you in investments — clear the liability first.`,
       }[personality];
     }
     return {
