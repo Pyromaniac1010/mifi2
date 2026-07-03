@@ -3,7 +3,7 @@ import { Flame, TrendingUp, TrendingDown, Wallet, ChevronDown, ChevronLeft, Chev
 import { Lightbulb, LogOut, ArrowLeft } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import Login from './components/Login';
-import { subscribeTransactions, addTransaction, updateTransaction, deleteTransaction, subscribeDebts, addDebt, updateDebt, deleteDebt, subscribeRecurring, addRecurring, updateRecurring, deleteRecurring, subscribeMessages, addMessage, clearMessages, subscribeBudget, addBudgetItem, updateBudgetItem, deleteBudgetItem, subscribeProfile, updateProfile } from './lib/db';
+import { subscribeTransactions, addTransaction, updateTransaction, deleteTransaction, subscribeDebts, addDebt, updateDebt, deleteDebt, subscribeRecurring, addRecurring, updateRecurring, deleteRecurring, subscribeMessages, addMessage, clearMessages, subscribeBudgetFolders, addBudgetFolder, updateBudgetFolder, deleteBudgetFolder, subscribeProfile, updateProfile } from './lib/db';
 
 const CURRENCIES = [
   { code: 'NGN', name: 'Nigerian Naira' }, { code: 'USD', name: 'US Dollar' }, { code: 'EUR', name: 'Euro' }, { code: 'GBP', name: 'British Pound' },
@@ -90,7 +90,7 @@ export default function App() {
   const [recur, setRecur] = useState([]);
   const [debts, setDebts] = useState([]);
   const [messages, setMessages] = useState([]);
-  const [budget, setBudget] = useState([]);
+  const [folders, setFolders] = useState([]);
   const [personality, setPersonality] = useState('genZ');
   const [strategy, setStrategy] = useState('avalanche');
   const [solvencyCap, setSolvencyCap] = useState(true);
@@ -109,7 +109,7 @@ export default function App() {
       subscribeDebts(user.uid, setDebts),
       subscribeRecurring(user.uid, setRecur),
       subscribeMessages(user.uid, setMessages),
-      subscribeBudget(user.uid, setBudget),
+      subscribeBudgetFolders(user.uid, setFolders),
       subscribeProfile(user.uid, (p) => {
         setThemeName(p.themeName === 'light' ? 'light' : 'dark');
         setBase(p.baseCurrency || 'NGN');
@@ -165,7 +165,7 @@ export default function App() {
       <main className="max-w-md mx-auto px-5 py-6 pb-28">
         {view === 'dashboard' && <Dashboard T={T} uid={uid} t={t} solvency={solvency} solvencyCap={solvencyCap} totalDebt={totalDebt} totalPay={totalPay} debts={debts} fmt={fmt} personality={personality} updated={updated} rates={rates} base={base} name={name} recur={recur} logRecur={logRecur} skipRecur={skipRecur} onNav={setView} txns={txns} />}
         {view === 'transactions' && <Money T={T} uid={uid} txns={txns} recur={recur} logRecur={logRecur} skipRecur={skipRecur} base={base} rates={rates} />}
-        {view === 'budget' && <Budget T={T} uid={uid} budget={budget} txns={txns} debts={debts} base={base} rates={rates} />}
+        {view === 'budget' && <Budget T={T} uid={uid} folders={folders} txns={txns} debts={debts} base={base} rates={rates} personality={personality} />}
         {view === 'debts' && <Debts T={T} uid={uid} debts={debts} base={base} rates={rates} fmt={fmt} personality={personality} t={t} strategy={strategy} />}
         {view === 'mi' && <Mi T={T} uid={uid} t={t} totalDebt={totalDebt} fmt={fmt} personality={personality} messages={messages} base={base} rates={rates} />}
         {view === 'settings' && <SettingsView T={T} uid={uid} email={user.email} name={name} base={base} themeName={themeName} personality={personality} strategy={strategy} solvencyCap={solvencyCap} defaultView={defaultView} logout={logout} onClose={() => setView('dashboard')} />}
@@ -700,51 +700,73 @@ function parsePlan(text, base) {
 }
 
 // ---------- BUDGET ----------
-function Budget({ T, uid, budget, txns, debts, base, rates }) {
-  const [text, setText] = useState('');
+function Budget({ T, uid, folders, txns, debts, base, rates, personality }) {
+  const [openId, setOpenId] = useState(null);
+  const [newFolder, setNewFolder] = useState('');
+  const [newKind, setNewKind] = useState('name');
+  const [itemText, setItemText] = useState('');
   const t = totals(txns, base, rates);
   const totalPay = debts.reduce((s, d) => s + convert(d.monthlyPayment, d.currency || base, base, rates), 0);
   const spare = t.income - t.expense - totalPay;
-  const inB = (b) => convert(b.amount, b.currency || base, base, rates);
-  const considering = budget.filter(b => b.status !== 'onhold');
-  const onhold = budget.filter(b => b.status === 'onhold');
-  const consideringTotal = considering.reduce((s, b) => s + inB(b), 0);
-  const afterCommit = spare - consideringTotal;
-  const add = async () => { const p = parsePlan(text, base); if (!(p.amount > 0) && !text.trim()) return; await addBudgetItem(uid, { description: p.description, amount: p.amount, currency: p.currency, cat: p.cat, status: 'considering' }); setText(''); };
-  const toggle = (b) => updateBudgetItem(uid, b.id, { status: b.status === 'onhold' ? 'considering' : 'onhold' });
-  const commit = async (b) => { await addTransaction(uid, { type: 'expense', incomeType: null, cat: b.cat || 'misc', amount: b.amount, currency: b.currency || base, note: b.description, date: Date.now() }); await deleteBudgetItem(uid, b.id); };
-  const del = (b) => deleteBudgetItem(uid, b.id);
-  const Item = ({ b }) => { const m = catMeta(b.cat); const Icon = m.icon; const onHold = b.status === 'onhold'; return (
-    <div className="rounded-2xl p-4" style={{ ...T.card, opacity: onHold ? 0.65 : 1 }}>
-      <div className="flex items-center gap-3">
-        <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: hexA(m.color, 0.15) }}><Icon className="w-5 h-5" style={{ color: m.color }} /></span>
-        <div className="min-w-0 flex-1"><p className="font-semibold truncate" style={{ color: T.textSoft }}>{b.description}</p><p className="text-xs" style={{ color: T.textFaint }}>{money(b.amount, b.currency || base, 0)}{(b.currency || base) !== base ? ` · ${money(inB(b), base, 0)}` : ''}</p></div>
+  const open = folders.find(f => f.id === openId);
+  const RISK = { low: { c: T.pos, label: 'Low risk' }, medium: { c: '#f5b14c', label: 'Tight' }, high: { c: T.neg, label: 'Over budget' } };
+
+  const addFolder = async () => { const name = newFolder.trim(); if (!name) return; setNewFolder(''); await addBudgetFolder(uid, { name, kind: newKind, items: [] }); };
+  const delFolder = async (id) => { setOpenId(null); await deleteBudgetFolder(uid, id); };
+  const addItem = async (fid) => { if (!itemText.trim()) return; const p = parsePlan(itemText, base); const f = folders.find(x => x.id === fid); if (!f) return; const item = { id: 'i' + Date.now(), description: p.description, amount: p.amount, currency: p.currency, cat: p.cat, status: 'considering' }; setItemText(''); await updateBudgetFolder(uid, fid, { items: [item, ...(f.items || [])] }); };
+  const toggleItem = async (fid, iid) => { const f = folders.find(x => x.id === fid); if (!f) return; await updateBudgetFolder(uid, fid, { items: (f.items || []).map(i => i.id === iid ? { ...i, status: i.status === 'onhold' ? 'considering' : 'onhold' } : i) }); };
+  const delItem = async (fid, iid) => { const f = folders.find(x => x.id === fid); if (!f) return; await updateBudgetFolder(uid, fid, { items: (f.items || []).filter(i => i.id !== iid) }); };
+  const commitItem = async (fid, it) => { await addTransaction(uid, { type: 'expense', incomeType: null, cat: it.cat || 'misc', amount: it.amount, currency: it.currency || base, note: it.description, date: Date.now() }); await delItem(fid, it.id); };
+
+  if (open) {
+    const ft = folderTotals(open, base, rates);
+    const risk = folderRisk(open, spare, base, rates);
+    const advice = folderAdvice(open, spare, base, rates, personality);
+    const KindIcon = open.kind === 'time' ? Calendar : Briefcase;
+    const items = open.items || [];
+    return (
+      <div className="space-y-4">
+        <button onClick={() => setOpenId(null)} className="flex items-center gap-1 text-sm font-medium" style={{ color: T.textMute }}><ChevronLeft className="w-4 h-4" />All folders</button>
+        <div className="rounded-3xl p-6" style={{ ...T.card, ...(T.isDark ? { background: 'linear-gradient(160deg, rgba(33,212,224,0.10), rgba(4,17,27,0.4))' } : {}) }}>
+          <div className="flex items-center gap-2 mb-1" style={{ color: T.textMute }}><KindIcon className="w-4 h-4" /><span className="text-xs uppercase tracking-wider">{open.kind === 'time' ? 'Time based' : 'Name based'}</span></div>
+          <h2 className="text-2xl font-bold tracking-tight">{open.name}</h2>
+          <div className="flex items-end justify-between mt-3">
+            <div><p className="text-xs" style={{ color: T.textFaint }}>Planned</p><p className="text-3xl font-bold tabular-nums" style={{ color: T.textMain }}>{money(ft.considering, base, 0)}</p></div>
+            <span className="px-3 py-1.5 rounded-full text-xs font-semibold" style={{ background: hexA(RISK[risk].c, 0.15), color: RISK[risk].c }}>{RISK[risk].label}</span>
+          </div>
+        </div>
+        <div className="rounded-2xl p-4 flex gap-3" style={T.card}><div className="shrink-0 mt-0.5"><MiFiAvatar size={34} /></div><div><p className="text-xs font-semibold mb-1" style={{ color: T.accentText }}>MiFi</p><p className="text-sm leading-relaxed" style={{ color: T.textSoft }}>{advice}</p></div></div>
+        <div className="rounded-2xl p-2 flex gap-2" style={T.card}><input value={itemText} onChange={e => setItemText(e.target.value)} onKeyDown={e => e.key === 'Enter' && addItem(open.id)} placeholder="Add an expense, e.g. flight home 95k" className="flex-1 bg-transparent px-3 outline-none" style={{ color: T.textMain }} /><button onClick={() => addItem(open.id)} className="p-2.5 rounded-xl" style={{ background: T.accent, color: T.accentBtnText }}><Plus className="w-5 h-5" /></button></div>
+        <div className="space-y-3">{items.length === 0 ? (<p className="text-center text-sm py-6" style={{ color: T.textFaint }}>No expenses in this folder yet.</p>) : items.map(it => { const m = catMeta(it.cat); const Icon = m.icon; const onHold = it.status === 'onhold'; return (
+          <div key={it.id} className="rounded-2xl p-4" style={{ ...T.card, opacity: onHold ? 0.6 : 1 }}>
+            <div className="flex items-center gap-3"><span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: hexA(m.color, 0.15) }}><Icon className="w-5 h-5" style={{ color: m.color }} /></span><div className="flex-1" style={{ minWidth: 0 }}><p className="font-semibold truncate" style={{ color: T.textSoft }}>{it.description}</p><p className="text-xs" style={{ color: T.textFaint }}>{money(it.amount, it.currency || base, 0)}{(it.currency || base) !== base ? ` \u00b7 ${money(convert(it.amount, it.currency || base, base, rates), base, 0)}` : ''}{onHold ? ' \u00b7 on hold' : ''}</p></div></div>
+            <div className="flex gap-2 mt-3"><button onClick={() => commitItem(open.id, it)} className="flex-1 py-2 rounded-lg text-sm font-semibold" style={{ background: T.accent, color: T.accentBtnText }}>Commit as expense</button><button onClick={() => toggleItem(open.id, it.id)} className="px-3 py-2 rounded-lg text-sm font-medium" style={{ background: T.innerBg, color: T.textMute }}>{onHold ? 'Reconsider' : 'Hold'}</button><button onClick={() => delItem(open.id, it.id)} className="px-3 py-2 rounded-lg" style={{ background: hexA(T.neg, 0.1), color: T.neg }}><Trash2 className="w-4 h-4" /></button></div>
+          </div>); })}</div>
+        <button onClick={() => delFolder(open.id)} className="w-full py-2.5 rounded-xl text-sm font-medium" style={{ background: hexA(T.neg, 0.1), color: T.neg }}>Delete folder</button>
       </div>
-      <div className="flex gap-2 mt-3">
-        <button onClick={() => commit(b)} className="flex-1 py-2 rounded-lg text-sm font-semibold" style={{ background: T.accent, color: T.accentBtnText }}>Commit as expense</button>
-        <button onClick={() => toggle(b)} className="px-3 py-2 rounded-lg text-sm font-medium" style={{ background: T.innerBg, color: T.textMute }}>{onHold ? 'Reconsider' : 'Hold'}</button>
-        <button onClick={() => del(b)} className="px-3 py-2 rounded-lg" style={{ background: hexA(T.neg, 0.1), color: T.neg }}><Trash2 className="w-4 h-4" /></button>
-      </div>
-    </div>
-  ); };
+    );
+  }
+
   return (
     <div className="space-y-4">
       <h2 className="text-2xl font-bold tracking-tight">Budget</h2>
-      <p className="text-sm" style={{ color: T.textMute }}>Plan purchases before you commit. Spare is what's left this month after income, spending, and debt payments.</p>
-      <div className="rounded-3xl p-6" style={{ ...T.card, ...(T.isDark ? { background: 'linear-gradient(160deg, rgba(4,17,27,0.5), rgba(4,17,27,0.55))' } : {}) }}>
+      <div className="rounded-3xl p-6" style={{ ...T.card, ...(T.isDark ? { background: 'linear-gradient(160deg, rgba(33,212,224,0.10), rgba(4,17,27,0.4))' } : {}) }}>
         <p className="text-sm mb-1" style={{ color: T.textMute }}>Spare this month</p>
-        <p className="text-4xl font-bold tracking-tight tabular-nums" style={{ color: spare >= 0 ? T.accentText : T.neg }}>{spare < 0 ? '−' : ''}{money(Math.abs(spare), base)}</p>
-        <div className="flex gap-5 mt-4 text-sm">
-          <div><span style={{ color: T.textFaint }}>Considering </span><span className="font-semibold" style={{ color: T.textSoft }}>{money(consideringTotal, base)}</span></div>
-          <div><span style={{ color: T.textFaint }}>Left after </span><span className="font-semibold" style={{ color: afterCommit >= 0 ? T.accentText : T.neg }}>{afterCommit < 0 ? '−' : ''}{money(Math.abs(afterCommit), base)}</span></div>
-        </div>
+        <p className="text-4xl font-bold tracking-tight tabular-nums" style={{ color: spare >= 0 ? T.pos : T.neg }}>{spare < 0 ? '\u2212' : ''}{money(Math.abs(spare), base)}</p>
+        <p className="text-xs mt-2" style={{ color: T.textFaint }}>After income, spending, and debt payments. Folders draw from this.</p>
       </div>
-      <div className="rounded-2xl p-2 flex gap-2" style={T.card}><input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => e.key === 'Enter' && add()} placeholder="e.g. new laptop 800 USD" className="flex-1 bg-transparent px-3 outline-none" style={{ color: T.textMain }} /><button onClick={add} className="p-2.5 rounded-xl" style={{ background: T.accent, color: T.accentBtnText, ...T.glow }}><Plus className="w-5 h-5" /></button></div>
-      {budget.length === 0 ? (<div className="rounded-2xl p-10 text-center" style={T.card}><Lightbulb className="w-10 h-10 mx-auto mb-3" style={{ color: T.textFaint }} /><p style={{ color: T.textMute }}>Nothing planned yet. Add something you're thinking of buying.</p></div>) : (<div className="space-y-3">{considering.map(b => <Item key={b.id} b={b} />)}{onhold.length > 0 && <p className="text-xs font-semibold uppercase tracking-wider pt-2" style={{ color: T.textFaint }}>On hold</p>}{onhold.map(b => <Item key={b.id} b={b} />)}</div>)}
+      <div className="rounded-2xl p-3 space-y-2" style={T.card}>
+        <div className="flex gap-2"><input value={newFolder} onChange={e => setNewFolder(e.target.value)} onKeyDown={e => e.key === 'Enter' && addFolder()} placeholder="New folder, e.g. December or Studio gear" className="flex-1 bg-transparent px-2 outline-none text-sm" style={{ color: T.textMain }} /><button onClick={addFolder} className="px-3 py-2 rounded-xl text-sm font-semibold" style={{ background: T.accent, color: T.accentBtnText }}>Add</button></div>
+        <div className="flex gap-2">{[['name', 'Name based', Briefcase], ['time', 'Time based', Calendar]].map(([k, label, Icon]) => (<button key={k} onClick={() => setNewKind(k)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium" style={newKind === k ? { background: T.pillBg, border: `1px solid ${T.pillBorder}`, color: T.accentText } : { background: T.innerBg, border: `1px solid ${T.border}`, color: T.textMute }}><Icon className="w-3.5 h-3.5" />{label}</button>))}</div>
+      </div>
+      {folders.length === 0 ? (<div className="rounded-2xl p-10 text-center" style={T.card}><Lightbulb className="w-10 h-10 mx-auto mb-3" style={{ color: T.textFaint }} /><p style={{ color: T.textMute }}>No folders yet. Create one for a month or a goal.</p></div>) : (<div className="space-y-3">{folders.map(f => { const ft = folderTotals(f, base, rates); const risk = folderRisk(f, spare, base, rates); const KindIcon = f.kind === 'time' ? Calendar : Briefcase; const count = (f.items || []).length; return (
+        <button key={f.id} onClick={() => setOpenId(f.id)} className="w-full text-left rounded-2xl p-4" style={T.card}>
+          <div className="flex items-center justify-between mb-2"><div className="flex items-center gap-2"><span className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: T.pillBg }}><KindIcon className="w-4 h-4" style={{ color: T.accentText }} /></span><div><p className="font-semibold" style={{ color: T.textMain }}>{f.name}</p><p className="text-xs" style={{ color: T.textFaint }}>{count} item{count === 1 ? '' : 's'}</p></div></div><div className="text-right"><p className="font-bold tabular-nums" style={{ color: T.textMain }}>{money(ft.considering, base, 0)}</p><span className="text-xs font-semibold" style={{ color: RISK[risk].c }}>{RISK[risk].label}</span></div></div>
+          <p className="text-xs leading-relaxed" style={{ color: T.textMute }}>{folderAdvice(f, spare, base, rates, personality)}</p>
+        </button>); })}</div>)}
     </div>
   );
 }
-
 
 // ===== logo-skin signature + MiFi avatar + Brother voice =====
 function Sprout({ T }) {
@@ -818,4 +840,35 @@ function brotherReply(q, t, totalDebt, fmt) {
     return `Passive income is how you buy your time back, bro. Turn a skill into a product, add some dividend payers, build content that keeps paying. Start small, stay steady, I will keep you on track.`;
   }
   return `I did not fully catch that, bro. Ask me about your money, your debt, or building income, and I will break it down for you.`;
+}
+
+
+// ===== budget folder helpers =====
+const NEED_CATS = ['rent', 'bills', 'data', 'transport', 'groceries', 'health', 'education', 'family'];
+function folderTotals(folder, base, rates) {
+  let total = 0, considering = 0;
+  (folder.items || []).forEach(it => { const v = convert(it.amount, it.currency || base, base, rates); total += v; if (it.status !== 'onhold') considering += v; });
+  return { total, considering };
+}
+function folderRisk(folder, spare, base, rates) {
+  const { considering } = folderTotals(folder, base, rates);
+  if (spare <= 0) return considering > 0 ? 'high' : 'low';
+  if (considering > spare) return 'high';
+  if (considering > spare * 0.6) return 'medium';
+  return 'low';
+}
+function folderAdvice(folder, spare, base, rates, personality) {
+  const items = (folder.items || []).filter(i => i.status !== 'onhold');
+  if (items.length === 0) return 'Nothing active here yet. Add what you are weighing up and I will tell you what to prioritise.';
+  const { considering } = folderTotals(folder, base, rates);
+  const val = (i) => convert(i.amount, i.currency || base, base, rates);
+  const needs = items.filter(i => NEED_CATS.includes(i.cat));
+  const wants = items.filter(i => !NEED_CATS.includes(i.cat)).sort((a, b) => val(b) - val(a));
+  const opener = { genZ: 'Real talk,', coolUncle: 'Listen,', harsh: 'No excuses,', professional: 'Assessment:', africanParent: 'My child,', naijaHustler: 'Oya listen,', zen: 'Breathe.', brother: 'Bro,' }[personality] || '';
+  const needNames = needs.map(i => i.description).join(', ');
+  if (spare > 0 && considering > spare) {
+    const over = considering - spare; const cut = wants[0];
+    return `${opener} this folder is ${money(considering, base, 0)}, which is ${money(over, base, 0)} more than your ${money(spare, base, 0)} spare this month. ${needs.length ? `Commit the essentials first (${needNames}). ` : ''}${cut ? `Hold ${cut.description} for now, it is the biggest stretch.` : 'Trim the largest item to stay safe.'}`;
+  }
+  return `${opener} this fits inside your ${money(spare, base, 0)} spare this month. ${needs.length ? `Commit ${needNames} first, ` : ''}${wants.length ? `then ${wants[0].description} if you still feel good about it.` : 'you are in good shape.'}`;
 }

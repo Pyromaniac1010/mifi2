@@ -42,6 +42,14 @@ export const addBudgetItem = (uid, data) => addDoc(col(uid, 'budget'), { ...data
 export const updateBudgetItem = (uid, id, data) => updateDoc(ref(uid, 'budget', id), data);
 export const deleteBudgetItem = (uid, id) => deleteDoc(ref(uid, 'budget', id));
 
+// --- Budget folders (users/{uid}/budgetFolders); each doc holds an items[] array ---
+export function subscribeBudgetFolders(uid, cb) {
+  return onSnapshot(col(uid, 'budgetFolders'), (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
+}
+export const addBudgetFolder = (uid, data) => addDoc(col(uid, 'budgetFolders'), { name: data.name, kind: data.kind || 'name', items: data.items || [], createdAt: Date.now() });
+export const updateBudgetFolder = (uid, id, data) => updateDoc(ref(uid, 'budgetFolders', id), data);
+export const deleteBudgetFolder = (uid, id) => deleteDoc(ref(uid, 'budgetFolders', id));
+
 // --- Mi chat messages ---
 export function subscribeMessages(uid, cb) {
   const q = query(col(uid, 'messages'), orderBy('ts', 'asc'));
