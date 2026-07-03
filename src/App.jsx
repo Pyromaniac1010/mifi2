@@ -96,6 +96,9 @@ export default function App() {
   const [solvencyCap, setSolvencyCap] = useState(true);
   const [defaultView, setDefaultView] = useState('dashboard');
   const [name, setName] = useState('');
+  const [avatar, setAvatar] = useState(0);
+  const [bio, setBio] = useState('');
+  const [goal, setGoal] = useState('');
   const [showCur, setShowCur] = useState(false);
   const didInit = useRef(false);
 
@@ -118,6 +121,9 @@ export default function App() {
         setSolvencyCap(p.solvencyCap !== false);
         setDefaultView(p.defaultView || 'dashboard');
         setName(p.name || '');
+        setAvatar(Number.isInteger(p.avatar) ? p.avatar : 0);
+        setBio(p.bio || '');
+        setGoal(p.goal || '');
         if (!didInit.current) { setView(p.defaultView || 'dashboard'); didInit.current = true; }
       }),
     ];
@@ -163,12 +169,12 @@ export default function App() {
       </header>
 
       <main className="max-w-md mx-auto px-5 py-6 pb-28">
-        {view === 'dashboard' && <Dashboard T={T} uid={uid} t={t} solvency={solvency} solvencyCap={solvencyCap} totalDebt={totalDebt} totalPay={totalPay} debts={debts} fmt={fmt} personality={personality} updated={updated} rates={rates} base={base} name={name} recur={recur} logRecur={logRecur} skipRecur={skipRecur} onNav={setView} txns={txns} />}
+        {view === 'dashboard' && <Dashboard T={T} uid={uid} t={t} solvency={solvency} solvencyCap={solvencyCap} totalDebt={totalDebt} totalPay={totalPay} debts={debts} fmt={fmt} personality={personality} updated={updated} rates={rates} base={base} name={name} avatar={avatar} recur={recur} logRecur={logRecur} skipRecur={skipRecur} onNav={setView} txns={txns} />}
         {view === 'transactions' && <Money T={T} uid={uid} txns={txns} recur={recur} logRecur={logRecur} skipRecur={skipRecur} base={base} rates={rates} />}
         {view === 'budget' && <Budget T={T} uid={uid} folders={folders} txns={txns} debts={debts} base={base} rates={rates} personality={personality} />}
         {view === 'debts' && <Debts T={T} uid={uid} debts={debts} base={base} rates={rates} fmt={fmt} personality={personality} t={t} strategy={strategy} />}
         {view === 'mi' && <Mi T={T} uid={uid} t={t} totalDebt={totalDebt} fmt={fmt} personality={personality} messages={messages} base={base} rates={rates} />}
-        {view === 'settings' && <SettingsView T={T} uid={uid} email={user.email} name={name} base={base} themeName={themeName} personality={personality} strategy={strategy} solvencyCap={solvencyCap} defaultView={defaultView} logout={logout} onClose={() => setView('dashboard')} />}
+        {view === 'settings' && <SettingsView T={T} uid={uid} email={user.email} name={name} avatar={avatar} bio={bio} goal={goal} base={base} themeName={themeName} personality={personality} strategy={strategy} solvencyCap={solvencyCap} defaultView={defaultView} logout={logout} onClose={() => setView('dashboard')} />}
       </main>
 
       <nav className="fixed bottom-0 inset-x-0 z-40" style={{ background: T.navBg, backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', borderTop: `1px solid ${T.border}` }}>
@@ -426,12 +432,12 @@ function CatTable({ T, title, rows, total, base, neg }) {
 }
 
 // ---------- DASHBOARD ----------
-function Dashboard({ T, uid, t, solvency, solvencyCap, totalDebt, totalPay, debts, fmt, personality, updated, rates, base, name, recur, logRecur, skipRecur, onNav, txns }) {
+function Dashboard({ T, uid, t, solvency, solvencyCap, totalDebt, totalPay, debts, fmt, personality, updated, rates, base, name, avatar, recur, logRecur, skipRecur, onNav, txns }) {
   const insight = getMiInsight(t, totalPay, debts, personality, fmt);
   const shown = solvencyCap ? Math.min(solvency, 100) : solvency;
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between"><div><p className="text-sm" style={{ color: T.textMute }}>Welcome back,</p><p className="text-xl font-bold tracking-tight">{name}</p></div><div className="w-11 h-11 rounded-2xl flex items-center justify-center font-bold text-lg" style={{ background: T.pillBg, color: T.accentText, border: `1px solid ${T.pillBorder}` }}>{(name || 'U').charAt(0).toUpperCase()}</div></div>
+      <div className="flex items-center justify-between"><div><p className="text-sm" style={{ color: T.textMute }}>Welcome back,</p><p className="text-xl font-bold tracking-tight">{name}</p></div><Avatar i={avatar} size={44} /></div>
       <button onClick={() => onNav('mi')} className="w-full text-left"><MiBanner T={T} personality={personality} text={insight} /><div className="flex items-center justify-end gap-1 mt-2 text-xs font-medium pr-1" style={{ color: T.accentText }}><span>Chat with MiFi</span><ChevronRight className="w-3.5 h-3.5" /></div></button>
       <DueCard T={T} recur={recur} base={base} rates={rates} logRecur={logRecur} skipRecur={skipRecur} compact />
       <div className="rounded-3xl p-6 flex flex-col items-center" style={{ ...T.card, ...(T.isDark ? { background: 'linear-gradient(160deg, rgba(4,17,27,0.5), rgba(15,23,42,0.55))' } : {}) }}>
@@ -560,12 +566,18 @@ function Mi({ T, uid, t, totalDebt, fmt, personality, messages, base, rates }) {
 }
 
 // ---------- SETTINGS ----------
-function SettingsView({ T, uid, email, name, base, themeName, personality, strategy, solvencyCap, defaultView, logout, onClose }) {
+function SettingsView({ T, uid, email, name, avatar, bio, goal, base, themeName, personality, strategy, solvencyCap, defaultView, logout, onClose }) {
   const [nameDraft, setNameDraft] = useState(name || '');
   const [savedName, setSavedName] = useState(false);
   const [cleared, setCleared] = useState(false);
+  const [bioDraft, setBioDraft] = useState(bio || '');
+  const [goalDraft, setGoalDraft] = useState(goal || '');
+  const [savedAbout, setSavedAbout] = useState(false);
   useEffect(() => { setNameDraft(name || ''); }, [name]);
+  useEffect(() => { setBioDraft(bio || ''); setGoalDraft(goal || ''); }, [bio, goal]);
   const saveName = () => { updateProfile(uid, { name: nameDraft.trim() }); setSavedName(true); setTimeout(() => setSavedName(false), 1500); };
+  const saveAbout = () => { updateProfile(uid, { bio: bioDraft.trim(), goal: goalDraft.trim() }); setSavedAbout(true); setTimeout(() => setSavedAbout(false), 1500); };
+  const pickAvatar = (i) => updateProfile(uid, { avatar: i });
   const wipe = async () => { await clearMessages(uid); setCleared(true); setTimeout(() => setCleared(false), 1500); };
   const views = [['dashboard', 'Home'], ['transactions', 'Money'], ['budget', 'Budget'], ['debts', 'Debts'], ['mi', 'Mi']];
   const pill = (on) => on ? { background: T.pillBg, border: `1px solid ${T.pillBorder}`, color: T.accentText } : { background: T.innerBg, border: `1px solid ${T.border}`, color: T.textSoft };
@@ -574,9 +586,15 @@ function SettingsView({ T, uid, email, name, base, themeName, personality, strat
       <div className="flex items-center gap-2"><button onClick={onClose} className="p-2 -ml-2 rounded-lg" style={{ color: T.textMute }}><ArrowLeft className="w-6 h-6" /></button><h2 className="text-2xl font-bold tracking-tight">Settings</h2></div>
 
       <Section T={T} icon={<User className="w-4 h-4" />} title="Profile">
-        <div className="flex items-center gap-3 mb-4"><div className="w-14 h-14 rounded-2xl flex items-center justify-center font-bold text-xl" style={{ background: T.pillBg, color: T.accentText, border: `1px solid ${T.pillBorder}` }}>{(nameDraft || 'U').charAt(0).toUpperCase()}</div><div><p className="font-semibold" style={{ color: T.textMain }}>{nameDraft || 'You'}</p><p className="text-xs" style={{ color: T.textFaint }}>{email}</p></div></div>
+        <div className="flex items-center gap-3 mb-4"><Avatar i={avatar} size={56} /><div><p className="font-semibold" style={{ color: T.textMain }}>{nameDraft || 'You'}</p><p className="text-xs" style={{ color: T.textFaint }}>{email}</p></div></div>
         <label className="text-xs font-medium block mb-1" style={{ color: T.textMute }}>Display name</label>
         <div className="flex gap-2"><Input T={T} value={nameDraft} onChange={setNameDraft} placeholder="Your name" /><button onClick={saveName} className="px-4 rounded-xl font-semibold shrink-0" style={{ background: T.accent, color: T.accentBtnText }}>{savedName ? <Check className="w-4 h-4" /> : 'Save'}</button></div>
+        <label className="text-xs font-medium block mb-2 mt-4" style={{ color: T.textMute }}>Avatar</label>
+        <div className="grid grid-cols-4 gap-2">{AVATARS.map((_, i) => (<button key={i} onClick={() => pickAvatar(i)} className="rounded-2xl p-1.5 flex items-center justify-center" style={{ background: avatar === i ? T.pillBg : T.innerBg, border: `1px solid ${avatar === i ? T.pillBorder : T.border}` }}><Avatar i={i} size={46} /></button>))}</div>
+        <label className="text-xs font-medium block mb-1 mt-4" style={{ color: T.textMute }}>Bio</label>
+        <textarea value={bioDraft} onChange={e => setBioDraft(e.target.value)} rows={2} placeholder="A line about you" className="w-full px-3.5 py-2.5 rounded-xl outline-none resize-none text-sm" style={{ background: T.inputBg, border: `1px solid ${T.inputBorder}`, color: T.textMain }} />
+        <label className="text-xs font-medium block mb-1 mt-3" style={{ color: T.textMute }}>Financial goal</label>
+        <div className="flex gap-2"><Input T={T} value={goalDraft} onChange={setGoalDraft} placeholder="e.g. debt-free by December" /><button onClick={saveAbout} className="px-4 rounded-xl font-semibold shrink-0" style={{ background: T.accent, color: T.accentBtnText }}>{savedAbout ? <Check className="w-4 h-4" /> : 'Save'}</button></div>
       </Section>
 
       <Section T={T} icon={<Wallet className="w-4 h-4" />} title="Base currency">
@@ -871,4 +889,74 @@ function folderAdvice(folder, spare, base, rates, personality) {
     return `${opener} this folder is ${money(considering, base, 0)}, which is ${money(over, base, 0)} more than your ${money(spare, base, 0)} spare this month. ${needs.length ? `Commit the essentials first (${needNames}). ` : ''}${cut ? `Hold ${cut.description} for now, it is the biggest stretch.` : 'Trim the largest item to stay safe.'}`;
   }
   return `${opener} this fits inside your ${money(spare, base, 0)} spare this month. ${needs.length ? `Commit ${needNames} first, ` : ''}${wants.length ? `then ${wants[0].description} if you still feel good about it.` : 'you are in good shape.'}`;
+}
+
+
+// ===== pop avatars =====
+const AVATARS = [
+  { bg: ['#22d3ee', '#0e7490'], skin: '#f4cba0', hair: '#1b1b22', shirt: '#0b3a4a', style: 'short', acc: 'shades' },
+  { bg: ['#34e6a4', '#0f9d6b'], skin: '#74441f', hair: '#0c0c0c', shirt: '#f5f5f5', style: 'fade', acc: 'chain' },
+  { bg: ['#a78bfa', '#6d28d9'], skin: '#c98a52', hair: '#241608', shirt: '#f5b14c', style: 'afro', acc: 'roundglasses' },
+  { bg: ['#fb923c', '#ea580c'], skin: '#e7b483', hair: '#101010', shirt: '#0ea5b5', style: 'beanie', acc: 'none' },
+  { bg: ['#fb7185', '#be123c'], skin: '#f4cba0', hair: '#3a1f12', shirt: '#7c3aed', style: 'long', acc: 'hoops' },
+  { bg: ['#38bdf8', '#0369a1'], skin: '#74441f', hair: '#0a0a0a', shirt: '#fb7185', style: 'bun', acc: 'bighoops' },
+  { bg: ['#fbbf24', '#d97706'], skin: '#c98a52', hair: '#1b1109', shirt: '#0ea5b5', style: 'ponytail', acc: 'headphones' },
+  { bg: ['#c084fc', '#7e22ce'], skin: '#e7b483', hair: '#121212', shirt: '#f472b6', style: 'wavy', acc: 'glasses' },
+];
+function avatarHairBack(a) {
+  const h = a.hair;
+  if (a.style === 'afro') return <circle cx="40" cy="30" r="20.5" fill={h} />;
+  if (a.style === 'long') return <path d="M20 60 C13 30 67 30 60 60 L60 30 C60 13 20 13 20 30 Z" fill={h} />;
+  if (a.style === 'wavy') return <path d="M18 61 C11 30 69 30 62 61 C62 46 62 32 60 27 C60 13 20 13 20 27 C18 32 18 46 18 61 Z" fill={h} />;
+  if (a.style === 'ponytail') return <path d="M53 25 C69 27 71 49 60 61 C67 46 60 32 49 30 Z" fill={h} />;
+  return null;
+}
+function avatarHairFront(a) {
+  const h = a.hair;
+  if (a.style === 'short') return <path d="M23 30 C23 13 57 13 57 30 C57 20 50 17 40 17 C30 17 23 20 23 30 Z" fill={h} />;
+  if (a.style === 'fade') return <path d="M26 27 C26 16 54 16 54 27 C54 21 48 18.5 40 18.5 C32 18.5 26 21 26 27 Z" fill={h} />;
+  if (a.style === 'afro') return null;
+  if (a.style === 'beanie') return (<g><path d="M22 31 C22 11 58 11 58 31 Z" fill={h} /><rect x="21" y="27" width="38" height="6.5" rx="3.25" fill={a.bg[0]} /></g>);
+  if (a.style === 'long') return <path d="M24 30 C24 14 56 14 56 30 C56 19 48 16.5 40 16.5 C32 16.5 24 19 24 30 Z" fill={h} />;
+  if (a.style === 'bun') return (<g><path d="M24 29 C24 14 56 14 56 29 C56 19 48 16.5 40 16.5 C32 16.5 24 19 24 29 Z" fill={h} /><circle cx="40" cy="11" r="6" fill={h} /></g>);
+  if (a.style === 'ponytail') return <path d="M24 29 C24 14 56 14 56 29 C56 19 48 16.5 40 16.5 C32 16.5 24 19 24 29 Z" fill={h} />;
+  if (a.style === 'wavy') return <path d="M24 30 C24 14 56 14 56 30 C56 19 47 16.5 40 16.5 C33 16.5 24 19 24 30 Z" fill={h} />;
+  return null;
+}
+function avatarAcc(a) {
+  if (a.acc === 'shades') return (<g><rect x="26" y="30" width="12" height="8" rx="3" fill="#15151b" /><rect x="42" y="30" width="12" height="8" rx="3" fill="#15151b" /><rect x="37.5" y="32.2" width="5" height="2" rx="1" fill="#15151b" /><rect x="28.2" y="31.6" width="4" height="2" rx="1" fill="rgba(255,255,255,0.55)" /></g>);
+  if (a.acc === 'glasses') return (<g fill="none" stroke="#211a14" strokeWidth="2"><circle cx="33.5" cy="34" r="5.4" /><circle cx="46.5" cy="34" r="5.4" /><path d="M39 34 H41" /></g>);
+  if (a.acc === 'roundglasses') return (<g fill="none" stroke="#f3c14b" strokeWidth="2.2"><circle cx="33.5" cy="34" r="5.8" /><circle cx="46.5" cy="34" r="5.8" /><path d="M39.3 34 H40.7" /></g>);
+  if (a.acc === 'headphones') return (<g><path d="M21 32 C21 12 59 12 59 32" fill="none" stroke="#1b1b22" strokeWidth="4" strokeLinecap="round" /><rect x="16" y="31" width="9" height="13" rx="4.5" fill="#1b1b22" /><rect x="55" y="31" width="9" height="13" rx="4.5" fill={a.bg[0]} /></g>);
+  if (a.acc === 'hoops') return (<g fill="none" stroke="#f3c14b" strokeWidth="2.2"><circle cx="24" cy="42" r="3.4" /><circle cx="56" cy="42" r="3.4" /></g>);
+  if (a.acc === 'bighoops') return (<g fill="none" stroke="#f3c14b" strokeWidth="2.4"><circle cx="23.5" cy="43" r="4.6" /><circle cx="56.5" cy="43" r="4.6" /></g>);
+  if (a.acc === 'chain') return (<g><path d="M31 58 Q40 67 49 58" fill="none" stroke="#f5c542" strokeWidth="2.4" /><circle cx="40" cy="64.4" r="2" fill="#f5c542" /></g>);
+  return null;
+}
+function Avatar({ i, size = 56 }) {
+  const a = AVATARS[i % AVATARS.length];
+  const gid = 'avg' + i;
+  const showEyes = a.acc !== 'shades';
+  return (
+    <svg width={size} height={size} viewBox="0 0 80 80" style={{ display: 'block', borderRadius: '50%' }}>
+      <defs>
+        <linearGradient id={gid} x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor={a.bg[0]} /><stop offset="100%" stopColor={a.bg[1]} /></linearGradient>
+        <clipPath id={gid + 'c'}><circle cx="40" cy="40" r="40" /></clipPath>
+      </defs>
+      <g clipPath={`url(#${gid}c)`}>
+        <rect width="80" height="80" fill={`url(#${gid})`} />
+        {avatarHairBack(a)}
+        <path d="M8 80 C8 62 22 56 40 56 C58 56 72 62 72 80 Z" fill={a.shirt} />
+        <path d="M40 56 L34.5 63 L40 69 L45.5 63 Z" fill="rgba(255,255,255,0.14)" />
+        <rect x="34.5" y="46" width="11" height="12" rx="5" fill={a.skin} />
+        <ellipse cx="40" cy="34" rx="16" ry="17.5" fill={a.skin} />
+        <circle cx="24.6" cy="36" r="3.2" fill={a.skin} />
+        <circle cx="55.4" cy="36" r="3.2" fill={a.skin} />
+        {avatarHairFront(a)}
+        {showEyes && <g fill="#241d18"><circle cx="33.6" cy="34" r="1.9" /><circle cx="46.4" cy="34" r="1.9" /></g>}
+        <path d="M34.5 41 Q40 45.6 45.5 41" stroke="#241d18" strokeWidth="1.6" fill="none" strokeLinecap="round" />
+        {avatarAcc(a)}
+      </g>
+    </svg>
+  );
 }
