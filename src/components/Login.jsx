@@ -16,13 +16,14 @@ function prettyError(code) {
 }
 
 export default function Login() {
-  const { login, signup, loginWithGoogle } = useAuth();
+  const { login, signup, loginWithGoogle, resetPassword } = useAuth();
   const [mode, setMode] = useState('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [focused, setFocused] = useState(null);
+  const [notice, setNotice] = useState('');
 
   const submit = async () => {
     setError('');
@@ -44,6 +45,8 @@ export default function Login() {
     catch (e) { setError(prettyError(e?.code)); }
     finally { setBusy(false); }
   };
+
+  const forgot = async () => { setError(''); setNotice(''); if (!email.trim()) { setError('Enter your email first, then tap reset.'); return; } try { await resetPassword(email.trim()); setNotice('Password reset link sent to ' + email.trim() + '.'); } catch (e) { setError(prettyError(e?.code)); } };
 
   const accent = '#21d4e0', accentBright = '#5fe9f1', pos = '#34e6a4';
   const textMain = '#eaf7f9', textMute = '#9bc1c9', textFaint = '#5d818c';
@@ -87,6 +90,8 @@ export default function Login() {
             />
           </div>
 
+          {mode === 'signin' && <div className="flex justify-end -mt-1"><button onClick={forgot} className="text-xs font-medium" style={{ color: accentBright }}>Forgot password?</button></div>}
+          {notice && <p className="text-sm px-1" style={{ color: pos }}>{notice}</p>}
           {error && <p className="text-sm px-1" style={{ color: '#ff6f86' }}>{error}</p>}
 
           <button

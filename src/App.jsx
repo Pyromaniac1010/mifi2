@@ -79,7 +79,7 @@ function nextDue(rec) {
 }
 
 export default function App() {
-  const { user, loading, logout } = useAuth();
+  const { user, loading, logout, resetPassword } = useAuth();
   const [themeName, setThemeName] = useState('dark');
   const T = THEMES[themeName];
   const [base, setBase] = useState('NGN');
@@ -130,6 +130,16 @@ export default function App() {
     return () => subs.forEach((u) => u && u());
   }, [user]);
 
+  useEffect(() => {
+    if (!user) return;
+    let timer;
+    const reset = () => { clearTimeout(timer); timer = setTimeout(() => logout(), 5 * 60 * 1000); };
+    const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'];
+    events.forEach((e) => window.addEventListener(e, reset, { passive: true }));
+    reset();
+    return () => { clearTimeout(timer); events.forEach((e) => window.removeEventListener(e, reset)); };
+  }, [user]);
+
   if (loading) return (<div className="min-h-screen flex items-center justify-center text-xl font-semibold" style={{ background: '#04111b', color: '#5fe9f1' }}>Loading MiFi…</div>);
   if (!user) return <Login />;
 
@@ -174,7 +184,7 @@ export default function App() {
         {view === 'budget' && <Budget T={T} uid={uid} folders={folders} txns={txns} debts={debts} base={base} rates={rates} personality={personality} />}
         {view === 'debts' && <Debts T={T} uid={uid} debts={debts} base={base} rates={rates} fmt={fmt} personality={personality} t={t} strategy={strategy} />}
         {view === 'mi' && <Mi T={T} uid={uid} t={t} totalDebt={totalDebt} fmt={fmt} personality={personality} messages={messages} base={base} rates={rates} />}
-        {view === 'settings' && <SettingsView T={T} uid={uid} email={user.email} name={name} avatar={avatar} bio={bio} goal={goal} base={base} themeName={themeName} personality={personality} strategy={strategy} solvencyCap={solvencyCap} defaultView={defaultView} logout={logout} onClose={() => setView('dashboard')} />}
+        {view === 'settings' && <SettingsView T={T} uid={uid} email={user.email} resetPassword={resetPassword} name={name} avatar={avatar} bio={bio} goal={goal} base={base} themeName={themeName} personality={personality} strategy={strategy} solvencyCap={solvencyCap} defaultView={defaultView} logout={logout} onClose={() => setView('dashboard')} />}
       </main>
 
       <nav className="fixed bottom-0 inset-x-0 z-40" style={{ background: T.navBg, backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', borderTop: `1px solid ${T.border}` }}>
@@ -230,6 +240,13 @@ function Money({ T, uid, txns, recur, logRecur, skipRecur, base, rates }) {
   const [tab, setTab] = useState('activity');
   const [range, setRange] = useState({ type: 'days', n: 30 });
   const [adding, setAdding] = useState(false);
+  const [selMode, setSelMode] = useState(false);
+  const [sel, setSel] = useState(() => new Set());
+  const [recat, setRecat] = useState(false);
+  const toggleSel = (id) => setSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const exitSel = () => { setSelMode(false); setSel(new Set()); setRecat(false); };
+  const bulkDel = async () => { for (const id of sel) await deleteTransaction(uid, id); exitSel(); };
+  const bulkRecat = async (cat) => { for (const id of sel) await updateTransaction(uid, id, { cat }); exitSel(); };
   const add = async (data) => { const { recurring, every, anchorDay, ...tx } = data; await addTransaction(uid, tx); if (recurring) await addRecurring(uid, { type: tx.type, cat: tx.cat, incomeType: tx.incomeType, amount: tx.amount, currency: tx.currency, note: tx.note, anchorDay: new Date(tx.date).getDate(), lastLogged: tx.date }); setAdding(false); };
   const del = (id) => deleteTransaction(uid, id);
   const edit = (id, data) => updateTransaction(uid, id, data);
@@ -238,9 +255,9 @@ function Money({ T, uid, txns, recur, logRecur, skipRecur, base, rates }) {
   for (const t of filtered) { const v = convert(t.amount, t.currency, base, rates); if (t.type === 'income') inc += v; else exp += v; }
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between"><h2 className="text-2xl font-bold tracking-tight">Money</h2><button onClick={() => setAdding(true)} className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold" style={{ background: T.accent, color: T.accentBtnText, ...T.glow }}><Plus className="w-4 h-4" />Add</button></div>
+      <div className="flex items-center justify-between"><h2 className="text-2xl font-bold tracking-tight">Money</h2><div className="flex items-center gap-2">{tab === 'activity' && filtered.length > 0 && <button onClick={() => selMode ? exitSel() : setSelMode(true)} className="px-3 py-2 rounded-xl text-sm font-semibold" style={selMode ? { background: T.pillBg, color: T.accentText, border: `1px solid ${T.pillBorder}` } : { background: T.innerBg, color: T.textMute }}>{selMode ? 'Cancel' : 'Select'}</button>}<button onClick={() => setAdding(true)} className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold" style={{ background: T.accent, color: T.accentBtnText, ...T.glow }}><Plus className="w-4 h-4" />Add</button></div></div>
       <div className="grid grid-cols-3 gap-2 p-1 rounded-2xl" style={{ background: T.innerBg }}>
-        {[['activity', 'Activity', List], ['summary', 'Summary', BarChart3], ['recurring', 'Recurring', Repeat]].map(([id, label, Icon]) => (<button key={id} onClick={() => setTab(id)} className="flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold transition-all" style={tab === id ? { background: T.accent, color: T.accentBtnText } : { color: T.textMute }}><Icon className="w-4 h-4" />{label}</button>))}
+        {[['activity', 'Activity', List], ['summary', 'Summary', BarChart3], ['recurring', 'Recurring', Repeat]].map(([id, label, Icon]) => (<button key={id} onClick={() => { setTab(id); exitSel(); }} className="flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold transition-all" style={tab === id ? { background: T.accent, color: T.accentBtnText } : { color: T.textMute }}><Icon className="w-4 h-4" />{label}</button>))}
       </div>
 
       {adding && <TxnForm T={T} base={base} onSave={add} onCancel={() => setAdding(false)} allowRecurring />}
@@ -255,10 +272,11 @@ function Money({ T, uid, txns, recur, logRecur, skipRecur, base, rates }) {
           <MiniStat T={T} label="Net" value={`${inc - exp < 0 ? '−' : ''}${money(Math.abs(inc - exp), base)}`} color={inc - exp >= 0 ? T.accentText : T.neg} />
         </div>
         {tab === 'activity' && <DueCard T={T} recur={recur} base={base} rates={rates} logRecur={logRecur} skipRecur={skipRecur} compact />}
+        {selMode && tab === 'activity' && (<div className="rounded-2xl p-3 space-y-2" style={T.card}><div className="flex items-center justify-between"><span className="text-sm font-semibold" style={{ color: T.textMain }}>{sel.size} selected</span><div className="flex gap-2"><button disabled={sel.size === 0} onClick={() => setRecat((r) => !r)} className="px-3 py-1.5 rounded-lg text-sm font-semibold disabled:opacity-40" style={{ background: T.pillBg, color: T.accentText }}>Recategorize</button><button disabled={sel.size === 0} onClick={bulkDel} className="px-3 py-1.5 rounded-lg text-sm font-semibold disabled:opacity-40" style={{ background: hexA(T.neg, 0.14), color: T.neg }}>Delete</button></div></div>{recat && <div className="grid grid-cols-4 gap-2 pt-1">{['groceries', 'dining', 'transport', 'rent', 'bills', 'data', 'subs', 'shopping', 'health', 'fun', 'family', 'education', 'misc'].map((id) => { const m = catMeta(id); const Icon = m.icon; return (<button key={id} onClick={() => bulkRecat(id)} className="flex flex-col items-center gap-1 py-2 rounded-xl" style={{ background: T.innerBg, border: `1px solid ${T.border}` }}><Icon className="w-5 h-5" style={{ color: m.color }} /><span className="text-[10px] leading-tight text-center px-0.5" style={{ color: T.textFaint }}>{m.label}</span></button>); })}</div>}</div>)}
         {filtered.length === 0 ? (
           <div className="rounded-2xl p-10 text-center" style={T.card}><Receipt className="w-10 h-10 mx-auto mb-3" style={{ color: T.textFaint }} /><p style={{ color: T.textMute }}>Nothing in this period</p></div>
         ) : tab === 'activity' ? (
-          <Activity T={T} txns={filtered} base={base} rates={rates} onDel={del} onEdit={edit} />
+          <Activity T={T} txns={filtered} base={base} rates={rates} onDel={del} onEdit={edit} selMode={selMode} sel={sel} onToggle={toggleSel} />
         ) : (
           <Summary T={T} txns={filtered} base={base} rates={rates} totalOut={exp} totalIn={inc} />
         )}
@@ -329,7 +347,7 @@ function PeriodBar({ T, range, setRange }) {
 function MiniStat({ T, label, value, color }) { return <div className="rounded-2xl p-3" style={T.card}><p className="text-xs mb-1" style={{ color: T.textFaint }}>{label}</p><p className="font-bold tabular-nums text-sm leading-tight" style={{ color }}>{value}</p></div>; }
 function dayLabel(ts) { const diff = Math.round((startOfDay(Date.now()) - startOfDay(ts)) / DAY); if (diff === 0) return 'Today'; if (diff === 1) return 'Yesterday'; return new Date(ts).toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' }); }
 
-function Activity({ T, txns, base, rates, onDel, onEdit }) {
+function Activity({ T, txns, base, rates, onDel, onEdit, selMode, sel, onToggle }) {
   const groups = []; const map = {};
   for (const t of txns) { const k = startOfDay(t.date); if (!map[k]) { map[k] = { key: k, items: [] }; groups.push(map[k]); } map[k].items.push(t); }
   return (
@@ -337,7 +355,7 @@ function Activity({ T, txns, base, rates, onDel, onEdit }) {
       {groups.map(g => { let net = 0; for (const t of g.items) { const v = convert(t.amount, t.currency, base, rates); net += t.type === 'income' ? v : -v; } return (
         <div key={g.key}>
           <div className="flex items-center justify-between px-1 mb-2"><span className="text-xs font-semibold uppercase tracking-wider" style={{ color: T.textMute }}>{dayLabel(g.key)}</span><span className="text-xs font-semibold tabular-nums" style={{ color: net >= 0 ? T.accentText : T.neg }}>{net < 0 ? '−' : '+'}{money(Math.abs(net), base)}</span></div>
-          <div className="space-y-2">{g.items.map(t => <TxnRow key={t.id} T={T} t={t} base={base} rates={rates} onDel={onDel} onEdit={onEdit} />)}</div>
+          <div className="space-y-2">{g.items.map(t => <TxnRow key={t.id} T={T} t={t} base={base} rates={rates} onDel={onDel} onEdit={onEdit} selMode={selMode} selected={sel && sel.has(t.id)} onToggle={onToggle} />)}</div>
         </div>); })}
     </div>
   );
@@ -345,8 +363,16 @@ function Activity({ T, txns, base, rates, onDel, onEdit }) {
 
 function CatChip({ id, size = 42 }) { const m = catMeta(id); const Icon = m.icon; return <div className="rounded-xl flex items-center justify-center shrink-0" style={{ width: size, height: size, background: hexA(m.color, 0.15), border: `1px solid ${hexA(m.color, 0.3)}` }}><Icon className="w-5 h-5" style={{ color: m.color }} /></div>; }
 
-function TxnRow({ T, t, base, rates, onDel, onEdit }) {
+function TxnRow({ T, t, base, rates, onDel, onEdit, selMode, selected, onToggle }) {
   const [editing, setEditing] = useState(false);
+  if (selMode) { const inc = t.type === 'income'; return (
+    <button onClick={() => onToggle(t.id)} className="w-full text-left rounded-2xl p-3 flex items-center gap-3" style={{ ...T.card, boxShadow: selected ? `0 0 0 2px ${T.accent}` : (T.card.boxShadow || 'none') }}>
+      <span className="w-6 h-6 rounded-md flex items-center justify-center shrink-0" style={{ background: selected ? T.accent : 'transparent', border: `1px solid ${selected ? T.accent : T.textFaint}` }}>{selected && <Check className="w-4 h-4" style={{ color: T.accentBtnText }} />}</span>
+      <CatChip id={t.cat} size={38} />
+      <div className="min-w-0 flex-1"><p className="font-semibold truncate" style={{ color: T.textSoft }}>{t.note || catMeta(t.cat).label}</p><p className="text-xs truncate" style={{ color: T.textFaint }}>{catMeta(t.cat).label}</p></div>
+      <span className="font-bold tabular-nums shrink-0" style={{ color: inc ? T.accentText : T.neg }}>{inc ? '+' : '\u2212'}{money(Math.abs(convert(t.amount, t.currency, base, rates)), base)}</span>
+    </button>
+  ); }
   if (editing) return <TxnForm T={T} base={base} initial={t} onSave={(d) => { onEdit(t.id, d); setEditing(false); }} onDelete={() => { onDel(t.id); setEditing(false); }} onCancel={() => setEditing(false)} />;
   const inBase = convert(t.amount, t.currency, base, rates); const inc = t.type === 'income'; const m = catMeta(t.cat);
   return (
@@ -566,19 +592,21 @@ function Mi({ T, uid, t, totalDebt, fmt, personality, messages, base, rates }) {
 }
 
 // ---------- SETTINGS ----------
-function SettingsView({ T, uid, email, name, avatar, bio, goal, base, themeName, personality, strategy, solvencyCap, defaultView, logout, onClose }) {
+function SettingsView({ T, uid, email, resetPassword, name, avatar, bio, goal, base, themeName, personality, strategy, solvencyCap, defaultView, logout, onClose }) {
   const [nameDraft, setNameDraft] = useState(name || '');
   const [savedName, setSavedName] = useState(false);
   const [cleared, setCleared] = useState(false);
   const [bioDraft, setBioDraft] = useState(bio || '');
   const [goalDraft, setGoalDraft] = useState(goal || '');
   const [savedAbout, setSavedAbout] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
   useEffect(() => { setNameDraft(name || ''); }, [name]);
   useEffect(() => { setBioDraft(bio || ''); setGoalDraft(goal || ''); }, [bio, goal]);
   const saveName = () => { updateProfile(uid, { name: nameDraft.trim() }); setSavedName(true); setTimeout(() => setSavedName(false), 1500); };
   const saveAbout = () => { updateProfile(uid, { bio: bioDraft.trim(), goal: goalDraft.trim() }); setSavedAbout(true); setTimeout(() => setSavedAbout(false), 1500); };
   const pickAvatar = (i) => updateProfile(uid, { avatar: i });
   const wipe = async () => { await clearMessages(uid); setCleared(true); setTimeout(() => setCleared(false), 1500); };
+  const sendReset = async () => { try { await resetPassword(email); setResetSent(true); setTimeout(() => setResetSent(false), 2500); } catch {} };
   const views = [['dashboard', 'Home'], ['transactions', 'Money'], ['budget', 'Budget'], ['debts', 'Debts'], ['mi', 'Mi']];
   const pill = (on) => on ? { background: T.pillBg, border: `1px solid ${T.pillBorder}`, color: T.accentText } : { background: T.innerBg, border: `1px solid ${T.border}`, color: T.textSoft };
   return (
@@ -629,6 +657,11 @@ function SettingsView({ T, uid, email, name, avatar, bio, goal, base, themeName,
 
       <Section T={T} icon={<MessageCircle className="w-4 h-4" />} title="Mi chat">
         <button onClick={wipe} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-medium" style={{ background: hexA(T.neg, 0.12), color: T.neg }}>{cleared ? <><Check className="w-4 h-4" />Cleared</> : <><Trash2 className="w-4 h-4" />Clear chat history</>}</button>
+      </Section>
+
+      <Section T={T} icon={<User className="w-4 h-4" />} title="Account">
+        <button onClick={sendReset} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-medium" style={{ background: T.innerBg, color: T.textSoft, border: `1px solid ${T.border}` }}>{resetSent ? <><Check className="w-4 h-4" />Reset link sent</> : 'Send password reset email'}</button>
+        <p className="text-xs mt-2" style={{ color: T.textFaint }}>We will email {email} a link to set a new password.</p>
       </Section>
 
       <button onClick={logout} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-medium" style={{ background: hexA(T.neg, 0.12), color: T.neg }}><LogOut className="w-5 h-5" />Log out</button>
