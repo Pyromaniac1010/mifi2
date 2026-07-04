@@ -67,3 +67,13 @@ export function subscribeProfile(uid, cb) {
   return onSnapshot(doc(db, 'users', uid), (snap) => cb(snap.exists() ? snap.data() : {}));
 }
 export const updateProfile = (uid, data) => setDoc(doc(db, 'users', uid), data, { merge: true });
+
+// --- Delete every trace of a user (data first, account after) ---
+export async function deleteAllUserData(uid) {
+  const names = ['transactions', 'debts', 'recurring', 'budget', 'budgetFolders', 'messages'];
+  for (const n of names) {
+    const snap = await getDocs(col(uid, n));
+    await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+  }
+  await deleteDoc(doc(db, 'users', uid));
+}

@@ -7,6 +7,10 @@ import {
   GoogleAuthProvider,
   signOut,
   sendPasswordResetEmail,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+  reauthenticateWithPopup,
+  deleteUser,
 } from 'firebase/auth';
 import { auth } from '../lib/firebase';
 const AuthContext = createContext(null);
@@ -26,6 +30,9 @@ export function AuthProvider({ children }) {
     loginWithGoogle: () => signInWithPopup(auth, new GoogleAuthProvider()),
     logout: () => signOut(auth),
     resetPassword: (email) => sendPasswordResetEmail(auth, email),
+    reauth: (pw) => reauthenticateWithCredential(auth.currentUser, EmailAuthProvider.credential(auth.currentUser.email, pw)),
+    reauthGoogle: () => reauthenticateWithPopup(auth.currentUser, new GoogleAuthProvider()),
+    deleteAccount: () => deleteUser(auth.currentUser),
   };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

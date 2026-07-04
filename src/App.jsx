@@ -3,7 +3,7 @@ import { Flame, TrendingUp, TrendingDown, Wallet, ChevronDown, ChevronLeft, Chev
 import { Lightbulb, LogOut, ArrowLeft } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import Login from './components/Login';
-import { subscribeTransactions, addTransaction, updateTransaction, deleteTransaction, subscribeDebts, addDebt, updateDebt, deleteDebt, subscribeRecurring, addRecurring, updateRecurring, deleteRecurring, subscribeMessages, addMessage, clearMessages, subscribeBudgetFolders, addBudgetFolder, updateBudgetFolder, deleteBudgetFolder, subscribeProfile, updateProfile } from './lib/db';
+import { subscribeTransactions, addTransaction, updateTransaction, deleteTransaction, subscribeDebts, addDebt, updateDebt, deleteDebt, subscribeRecurring, addRecurring, updateRecurring, deleteRecurring, subscribeMessages, addMessage, clearMessages, subscribeBudgetFolders, addBudgetFolder, updateBudgetFolder, deleteBudgetFolder, subscribeProfile, updateProfile, deleteAllUserData } from './lib/db';
 
 const CURRENCIES = [
   { code: 'NGN', name: 'Nigerian Naira' }, { code: 'USD', name: 'US Dollar' }, { code: 'EUR', name: 'Euro' }, { code: 'GBP', name: 'British Pound' },
@@ -79,7 +79,7 @@ function nextDue(rec) {
 }
 
 export default function App() {
-  const { user, loading, logout, resetPassword } = useAuth();
+  const { user, loading, logout, resetPassword, reauth, reauthGoogle, deleteAccount } = useAuth();
   const [themeName, setThemeName] = useState('dark');
   const T = THEMES[themeName];
   const [base, setBase] = useState('NGN');
@@ -99,6 +99,8 @@ export default function App() {
   const [avatar, setAvatar] = useState(0);
   const [bio, setBio] = useState('');
   const [goal, setGoal] = useState('');
+  const [onboarded, setOnboarded] = useState(false);
+  const [profileReady, setProfileReady] = useState(false);
   const [showCur, setShowCur] = useState(false);
   const didInit = useRef(false);
 
@@ -124,6 +126,8 @@ export default function App() {
         setAvatar(Number.isInteger(p.avatar) ? p.avatar : 0);
         setBio(p.bio || '');
         setGoal(p.goal || '');
+        setOnboarded(p.onboarded === true || !!(p.name && String(p.name).trim()));
+        setProfileReady(true);
         if (!didInit.current) { setView(p.defaultView || 'dashboard'); didInit.current = true; }
       }),
     ];
@@ -144,6 +148,8 @@ export default function App() {
   if (!user) return <Login />;
 
   const uid = user.uid;
+  if (!profileReady) return (<div className="min-h-screen flex items-center justify-center text-xl font-semibold" style={{ background: '#04111b', color: '#5fe9f1' }}>Loading MiFi…</div>);
+  if (!onboarded) return <Onboarding T={T} uid={uid} email={user.email} />;
   const t = totals(txns, base, rates);
   const totalDebt = debts.reduce((s, d) => s + convert(d.principal, d.currency || base, base, rates), 0);
   const totalPay = debts.reduce((s, d) => s + convert(d.monthlyPayment, d.currency || base, base, rates), 0);
@@ -184,7 +190,7 @@ export default function App() {
         {view === 'budget' && <Budget T={T} uid={uid} folders={folders} txns={txns} debts={debts} base={base} rates={rates} personality={personality} />}
         {view === 'debts' && <Debts T={T} uid={uid} debts={debts} base={base} rates={rates} fmt={fmt} personality={personality} t={t} strategy={strategy} />}
         {view === 'mi' && <Mi T={T} uid={uid} t={t} totalDebt={totalDebt} fmt={fmt} personality={personality} messages={messages} base={base} rates={rates} />}
-        {view === 'settings' && <SettingsView T={T} uid={uid} email={user.email} resetPassword={resetPassword} name={name} avatar={avatar} bio={bio} goal={goal} base={base} themeName={themeName} personality={personality} strategy={strategy} solvencyCap={solvencyCap} defaultView={defaultView} logout={logout} onClose={() => setView('dashboard')} />}
+        {view === 'settings' && <SettingsView T={T} uid={uid} email={user.email} resetPassword={resetPassword} reauth={reauth} reauthGoogle={reauthGoogle} deleteAccount={deleteAccount} provider={user.providerData && user.providerData[0] ? user.providerData[0].providerId : 'password'} name={name} avatar={avatar} bio={bio} goal={goal} base={base} themeName={themeName} personality={personality} strategy={strategy} solvencyCap={solvencyCap} defaultView={defaultView} logout={logout} onClose={() => setView('dashboard')} />}
       </main>
 
       <nav className="fixed bottom-0 inset-x-0 z-40" style={{ background: T.navBg, backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', borderTop: `1px solid ${T.border}` }}>
@@ -592,7 +598,7 @@ function Mi({ T, uid, t, totalDebt, fmt, personality, messages, base, rates }) {
 }
 
 // ---------- SETTINGS ----------
-function SettingsView({ T, uid, email, resetPassword, name, avatar, bio, goal, base, themeName, personality, strategy, solvencyCap, defaultView, logout, onClose }) {
+function SettingsView({ T, uid, email, resetPassword, reauth, reauthGoogle, deleteAccount, provider, name, avatar, bio, goal, base, themeName, personality, strategy, solvencyCap, defaultView, logout, onClose }) {
   const [nameDraft, setNameDraft] = useState(name || '');
   const [savedName, setSavedName] = useState(false);
   const [cleared, setCleared] = useState(false);
@@ -600,6 +606,11 @@ function SettingsView({ T, uid, email, resetPassword, name, avatar, bio, goal, b
   const [goalDraft, setGoalDraft] = useState(goal || '');
   const [savedAbout, setSavedAbout] = useState(false);
   const [resetSent, setResetSent] = useState(false);
+  const [delOpen, setDelOpen] = useState(false);
+  const [delPw, setDelPw] = useState('');
+  const [delConfirm, setDelConfirm] = useState('');
+  const [delBusy, setDelBusy] = useState(false);
+  const [delErr, setDelErr] = useState('');
   useEffect(() => { setNameDraft(name || ''); }, [name]);
   useEffect(() => { setBioDraft(bio || ''); setGoalDraft(goal || ''); }, [bio, goal]);
   const saveName = () => { updateProfile(uid, { name: nameDraft.trim() }); setSavedName(true); setTimeout(() => setSavedName(false), 1500); };
@@ -607,6 +618,7 @@ function SettingsView({ T, uid, email, resetPassword, name, avatar, bio, goal, b
   const pickAvatar = (i) => updateProfile(uid, { avatar: i });
   const wipe = async () => { await clearMessages(uid); setCleared(true); setTimeout(() => setCleared(false), 1500); };
   const sendReset = async () => { try { await resetPassword(email); setResetSent(true); setTimeout(() => setResetSent(false), 2500); } catch {} };
+  const doDelete = async () => { setDelErr(''); setDelBusy(true); try { if (provider === 'password') await reauth(delPw); else await reauthGoogle(); await deleteAllUserData(uid); await deleteAccount(); } catch (e) { setDelBusy(false); const code = e && e.code; setDelErr(code === 'auth/wrong-password' || code === 'auth/invalid-credential' ? 'Wrong password.' : 'Could not delete. You may need to sign out and back in first.'); } };
   const views = [['dashboard', 'Home'], ['transactions', 'Money'], ['budget', 'Budget'], ['debts', 'Debts'], ['mi', 'Mi']];
   const pill = (on) => on ? { background: T.pillBg, border: `1px solid ${T.pillBorder}`, color: T.accentText } : { background: T.innerBg, border: `1px solid ${T.border}`, color: T.textSoft };
   return (
@@ -662,6 +674,9 @@ function SettingsView({ T, uid, email, resetPassword, name, avatar, bio, goal, b
       <Section T={T} icon={<User className="w-4 h-4" />} title="Account">
         <button onClick={sendReset} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-medium" style={{ background: T.innerBg, color: T.textSoft, border: `1px solid ${T.border}` }}>{resetSent ? <><Check className="w-4 h-4" />Reset link sent</> : 'Send password reset email'}</button>
         <p className="text-xs mt-2" style={{ color: T.textFaint }}>We will email {email} a link to set a new password.</p>
+        <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${T.border}` }}>
+          {!delOpen ? (<button onClick={() => setDelOpen(true)} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-medium" style={{ background: hexA(T.neg, 0.12), color: T.neg }}><Trash2 className="w-4 h-4" />Delete account</button>) : (<div className="rounded-xl p-3 space-y-2.5" style={{ border: `1px solid ${hexA(T.neg, 0.4)}`, background: hexA(T.neg, 0.06) }}><p className="text-sm font-semibold" style={{ color: T.neg }}>This permanently deletes your account and all your data. It cannot be undone.</p>{provider === 'password' ? (<input type="password" value={delPw} onChange={e => setDelPw(e.target.value)} placeholder="Enter your password to confirm" className="w-full px-3.5 py-2.5 rounded-xl outline-none text-sm" style={{ background: T.inputBg, border: `1px solid ${T.inputBorder}`, color: T.textMain }} />) : (<input value={delConfirm} onChange={e => setDelConfirm(e.target.value)} placeholder="Type DELETE to confirm" className="w-full px-3.5 py-2.5 rounded-xl outline-none text-sm" style={{ background: T.inputBg, border: `1px solid ${T.inputBorder}`, color: T.textMain }} />)}{delErr && <p className="text-xs" style={{ color: T.neg }}>{delErr}</p>}<div className="flex gap-2"><button onClick={() => { setDelOpen(false); setDelPw(''); setDelConfirm(''); setDelErr(''); }} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: T.innerBg, color: T.textMute }}>Cancel</button><button disabled={delBusy || (provider === 'password' ? !delPw : delConfirm !== 'DELETE')} onClick={doDelete} className="flex-1 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-40" style={{ background: T.neg, color: '#ffffff' }}>{delBusy ? 'Deleting' : 'Permanently delete'}</button></div></div>)}
+        </div>
       </Section>
 
       <button onClick={logout} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-medium" style={{ background: hexA(T.neg, 0.12), color: T.neg }}><LogOut className="w-5 h-5" />Log out</button>
@@ -934,6 +949,33 @@ function folderAdvice(folder, spare, base, rates, personality) {
   return `${opener} this fits inside your ${money(spare, base, 0)} spare this month. ${needs.length ? `Commit ${needNames} first, ` : ''}${wants.length ? `then ${wants[0].description} if you still feel good about it.` : 'you are in good shape.'}`;
 }
 
+
+function Onboarding({ T, uid, email }) {
+  const [name, setName] = useState('');
+  const [country, setCountry] = useState('');
+  const [cur, setCur] = useState('NGN');
+  const [phone, setPhone] = useState('');
+  const [dob, setDob] = useState('');
+  const [busy, setBusy] = useState(false);
+  const fs = { background: T.inputBg, border: `1px solid ${T.inputBorder}`, color: T.textMain };
+  const lab = { color: T.textMute };
+  const submit = async () => { if (!name.trim() || !country.trim()) return; setBusy(true); try { await updateProfile(uid, { name: name.trim(), country: country.trim(), baseCurrency: cur, phone: phone.trim(), dob, onboarded: true }); } catch { setBusy(false); } };
+  return (
+    <div className="min-h-screen flex items-center justify-center px-5" style={{ background: T.pageBg, color: T.textMain }}>
+      <div className="w-full max-w-sm rounded-3xl p-7" style={T.solidPanel}>
+        <div className="flex flex-col items-center mb-6"><MiFiAvatar size={56} /><h1 className="text-xl font-bold mt-3">Welcome to MiFi</h1><p className="text-sm mt-1 text-center" style={{ color: T.textMute }}>A few quick details to set you up.</p></div>
+        <div className="space-y-3">
+          <div><label className="text-xs font-medium block mb-1" style={lab}>Your name</label><input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Akin" className="w-full px-3.5 py-2.5 rounded-xl outline-none text-sm" style={fs} /></div>
+          <div><label className="text-xs font-medium block mb-1" style={lab}>Country</label><input value={country} onChange={e => setCountry(e.target.value)} placeholder="e.g. Nigeria" className="w-full px-3.5 py-2.5 rounded-xl outline-none text-sm" style={fs} /></div>
+          <div><label className="text-xs font-medium block mb-1" style={lab}>Base currency</label><select value={cur} onChange={e => setCur(e.target.value)} className="w-full px-3.5 py-2.5 rounded-xl outline-none text-sm" style={fs}>{CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.code} - {c.name}</option>)}</select></div>
+          <div><label className="text-xs font-medium block mb-1" style={lab}>Phone (optional)</label><input value={phone} onChange={e => setPhone(e.target.value)} placeholder="+234..." className="w-full px-3.5 py-2.5 rounded-xl outline-none text-sm" style={fs} /></div>
+          <div><label className="text-xs font-medium block mb-1" style={lab}>Date of birth (optional)</label><input type="date" value={dob} onChange={e => setDob(e.target.value)} className="w-full px-3.5 py-2.5 rounded-xl outline-none text-sm" style={fs} /></div>
+          <button onClick={submit} disabled={busy || !name.trim() || !country.trim()} className="w-full py-3 rounded-xl font-semibold disabled:opacity-50" style={{ background: `linear-gradient(135deg,${T.accentBright},${T.accent})`, color: T.accentBtnText, ...T.glow }}>{busy ? 'Setting up' : 'Get started'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ===== pop avatars =====
 const AVATARS = [
