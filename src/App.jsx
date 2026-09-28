@@ -56,6 +56,9 @@ const THEMES = {
 
 const DAY = 86400000;
 
+// Beta feedback lands here. Set this to the address you want it sent to.
+const FEEDBACK_EMAIL = 'you@example.com';
+
 function convert(amount, from, to, rates) { if (from === to) return amount; if (!rates || !rates[from] || !rates[to]) return amount; return amount * (rates[to] / rates[from]); }
 function symbolOf(code) { return SYMBOLS[code] || code; }
 function money(amount, code, max) { const m = max ?? (Math.abs(amount) >= 1000 ? 0 : 2); const sym = SYMBOLS[code] || code; const num = new Intl.NumberFormat('en-US', { maximumFractionDigits: m, minimumFractionDigits: 0 }).format(Math.abs(amount)); const sign = amount < 0 ? '−' : ''; return sign + sym + (/[A-Za-z.]$/.test(sym) ? ' ' : '') + num; }
@@ -479,7 +482,7 @@ function Dashboard({ T, uid, t, solvency, solvencyCap, totalDebt, totalPay, debt
       <button onClick={() => onNav('mi')} className="w-full text-left"><MiBanner T={T} personality={personality} text={insight} /><div className="flex items-center justify-end gap-1 mt-2 text-xs font-medium pr-1" style={{ color: T.accentText }}><span>Chat with MiFi</span><ChevronRight className="w-3.5 h-3.5" /></div></button>
       <DueCard T={T} recur={recur} base={base} rates={rates} logRecur={logRecur} skipRecur={skipRecur} compact />
       <div className="rounded-3xl p-6 flex flex-col items-center" style={{ ...T.card, ...(T.isDark ? { background: 'linear-gradient(160deg, rgba(4,17,27,0.5), rgba(15,23,42,0.55))' } : {}) }}>
-        <div className="flex items-center gap-2 mb-1 self-start"><Flame className="w-4 h-4" style={{ color: T.accent }} /><span className="text-sm font-medium uppercase tracking-wider" style={{ color: T.textMute }}>Solvency Score</span></div>
+        <div className="flex items-center gap-2 mb-1 self-start"><Flame className="w-4 h-4" style={{ color: T.accent }} /><span className="text-sm font-medium uppercase tracking-wider" style={{ color: T.textMute }}>Solvency Score</span><InfoDot T={T} text="How close your income is to covering your monthly obligations. 100% means fully covered. The long-term goal is passive income doing that job, not your salary." /></div>
         <div className="relative my-2" style={{ width: 190, height: 190 }}><Gauge value={solvency} T={T} /><div className="absolute inset-0 flex flex-col items-center justify-center"><Sprout T={T} /><span className="text-4xl font-bold tracking-tight tabular-nums" style={T.isDark ? { textShadow: '0 0 20px rgba(33,212,224,0.5)' } : {}}>{shown.toFixed(0)}<span className="text-2xl" style={{ color: T.textFaint }}>%</span></span><span className="text-xs mt-1" style={{ color: T.textFaint }}>income vs obligations</span></div></div>
         <p className="text-sm text-center" style={{ color: T.textMute }}>{solvency >= 100 ? "Your income covers this month's obligations" : `${(100 - solvency).toFixed(0)}% to fully covering this month`}</p>
       </div>
@@ -592,7 +595,7 @@ function Mi({ T, uid, t, totalDebt, fmt, personality, messages, base, rates }) {
   const starters = ['How am I doing?', 'Debt or savings?', 'Grow my passive income'];
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 180px)' }}>
-      <div className="rounded-2xl p-4 flex items-center justify-between mb-3" style={T.card}><div className="flex items-center gap-3"><MiFiAvatar size={44} /><div><h2 className="text-lg font-bold">MiFi</h2><p className="text-xs" style={{ color: T.textMute }}>{p.name}</p></div></div><button onClick={() => setShowSet(!showSet)} className="p-2" style={{ color: T.textMute }}>{showSet ? <X className="w-5 h-5" /> : <Settings className="w-5 h-5" />}</button></div>
+      <div className="rounded-2xl p-4 flex items-center justify-between mb-3" style={T.card}><div className="flex items-center gap-3"><MiFiAvatar size={44} /><div><div className="flex items-center gap-1.5"><h2 className="text-lg font-bold">MiFi</h2><InfoDot T={T} text="MiFi reads your real numbers, income, spending, and debt, and gives a plain-language take. Change its personality with the gear icon." /></div><p className="text-xs" style={{ color: T.textMute }}>{p.name}</p></div></div><button onClick={() => setShowSet(!showSet)} className="p-2" style={{ color: T.textMute }}>{showSet ? <X className="w-5 h-5" /> : <Settings className="w-5 h-5" />}</button></div>
       {showSet && (<div className="rounded-2xl p-4 mb-3 grid grid-cols-2 gap-2" style={T.card}>{Object.entries(PERSONALITIES).map(([k, v]) => (<button key={k} onClick={() => { updateProfile(uid, { personality: k }); setShowSet(false); }} className="p-3 rounded-xl text-left" style={personality === k ? { background: T.pillBg, border: `1px solid ${T.pillBorder}` } : { background: T.innerBg, border: `1px solid ${T.border}` }}><div className="text-xl mb-1">{v.emoji}</div><div className="text-sm font-medium" style={{ color: T.textSoft }}>{v.name}</div></button>))}</div>)}
       <div className="flex-1 overflow-y-auto space-y-3 mb-3">
         {messages.length === 0 ? (<div className="text-center py-8"><div className="flex justify-center mb-3"><MiFiAvatar size={64} /></div><p className="font-bold mb-1" style={{ color: T.textMain }}>Hey, I'm MiFi 👋</p><p className="text-sm mb-5 px-6" style={{ color: T.textMute }}>Here to help you figure out how this money thing works.</p><div className="space-y-2">{starters.map(s => <button key={s} onClick={() => send(s)} className="block w-full rounded-xl p-3 text-sm text-left" style={{ ...T.card, color: T.textSoft }}>{s}</button>)}</div></div>) : messages.map(m => m.sender === 'user' ? (<div key={m.id} className="flex justify-end"><div className="max-w-[82%] p-3.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap" style={{ background: `linear-gradient(135deg,${T.accentBright},${T.accent})`, color: T.isDark ? '#020617' : '#ffffff', borderBottomRightRadius: 4 }}>{m.text}</div></div>) : (<div key={m.id} className="flex justify-start items-end gap-2"><MiFiAvatar size={28} /><div className="max-w-[82%] p-3.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap" style={{ ...T.card, borderBottomLeftRadius: 4, color: T.textSoft }}>{m.text}</div></div>))}
@@ -633,7 +636,7 @@ function SettingsView({ T, uid, email, resetPassword, reauth, reauthGoogle, dele
   const wipe = async () => { await clearMessages(uid); setCleared(true); setTimeout(() => setCleared(false), 1500); };
   const sendReset = async () => { try { await resetPassword(email); setResetSent(true); setTimeout(() => setResetSent(false), 2500); } catch {} };
   const doDelete = async () => { setDelErr(''); setDelBusy(true); try { if (provider === 'password') await reauth(delPw); else await reauthGoogle(); await deleteAllUserData(uid); await deleteAccount(); } catch (e) { setDelBusy(false); const code = e && e.code; setDelErr(code === 'auth/wrong-password' || code === 'auth/invalid-credential' ? 'Wrong password.' : 'Could not delete. You may need to sign out and back in first.'); } };
-  const views = [['dashboard', 'Home'], ['transactions', 'Money'], ['budget', 'Budget'], ['debts', 'Debts'], ['mi', 'Mi']];
+  const views = [['dashboard', 'Home'], ['transactions', 'Money'], ['budget', 'Budget'], ['debts', 'Debts'], ['future', 'Future'], ['mi', 'Mi']];
   const pill = (on) => on ? { background: T.pillBg, border: `1px solid ${T.pillBorder}`, color: T.accentText } : { background: T.innerBg, border: `1px solid ${T.border}`, color: T.textSoft };
   return (
     <div className="space-y-5">
@@ -654,6 +657,20 @@ function SettingsView({ T, uid, email, resetPassword, reauth, reauthGoogle, dele
       <Section T={T} icon={<Wallet className="w-4 h-4" />} title="Base currency">
         <p className="text-xs mb-3" style={{ color: T.textFaint }}>Everything is totalled and displayed in this currency. Each entry still keeps its own.</p>
         <div className="grid grid-cols-2 gap-2">{CURRENCIES.map(c => (<button key={c.code} onClick={() => updateProfile(uid, { baseCurrency: c.code })} className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left" style={pill(base === c.code)}><span className="w-6 font-semibold" style={{ color: base === c.code ? T.accentText : T.textMute }}>{symbolOf(c.code)}</span><span className="text-sm font-medium">{c.code}</span>{base === c.code && <Check className="w-4 h-4 ml-auto" style={{ color: T.accent }} />}</button>))}</div>
+      </Section>
+
+      <Section T={T} icon={<Route className="w-4 h-4" />} title="Forecast">
+        <label className="text-xs font-medium block mb-1" style={{ color: T.textMute }}>What is in your accounts right now</label>
+        <p className="text-xs mb-2" style={{ color: T.textFaint }}>MiFi tracks money moving in and out, not what you already hold. Give it a starting balance and it can tell you your runway, how long you would last if income stopped.</p>
+        <div className="flex gap-2"><Input T={T} value={cashDraft} onChange={setCashDraft} placeholder={`Balance in ${base}`} type="number" /><button onClick={saveCash} className="px-4 rounded-xl font-semibold shrink-0" style={{ background: T.accent, color: T.accentBtnText }}>{savedCash ? <Check className="w-4 h-4" /> : 'Save'}</button></div>
+        <p className="text-xs mt-1.5" style={{ color: T.textFaint }}>Typed in by you, and only used for the forecast. Update it whenever you like.</p>
+        <label className="text-xs font-medium block mb-1 mt-4" style={{ color: T.textMute }}>Expected yearly price rises</label>
+        <p className="text-xs mb-2" style={{ color: T.textFaint }}>Left at 0, the forecast assumes today's prices hold forever, which flatters anything past about a year. Set what you expect and MiFi grows your spending by it.</p>
+        <div className="flex gap-2"><Input T={T} value={inflDraft} onChange={setInflDraft} placeholder="e.g. 20 for 20% a year" type="number" /><button onClick={saveInfl} className="px-4 rounded-xl font-semibold shrink-0" style={{ background: T.accent, color: T.accentBtnText }}>{savedInfl ? <Check className="w-4 h-4" /> : 'Save'}</button></div>
+      </Section>
+
+      <Section T={T} icon={<Lightbulb className="w-4 h-4" />} title="How MiFi works">
+        {[['Solvency score', 'How close your income is to covering your monthly obligations. 100% means fully covered. The long-term goal is passive income doing that job, not your salary.'], ['Transactions', 'Log income and expenses. MiFi uses them for your net, cash-flow chart, and advice. Tap Select to delete or recategorize several at once.'], ['Debts', 'Add each debt with its rate and payment. MiFi shows your payoff date, how much of each payment is interest, and which to clear first. It warns if a balance is quietly growing.'], ['Budget folders', 'Group planned spending into folders (a month, a trip, a purchase). Each folder tells you if it fits your spare money and what to commit or hold.'], ['Future', 'Projects where your current habits lead: when your debt clears, when passive income covers everything, and how long you would last if income stopped. It needs three finished months before it will draw anything, because less than that is guesswork. The what-if sliders let you test a change before you make it.'], ['MiFi advisor', 'Reads your real numbers and gives a plain-language take. Eight personalities, switched with the gear icon in the MiFi tab.'], ['Currencies', 'Set your base currency in this screen and everything converts to it. 37 supported.'], ['Your data', 'Everything is private to your account. Reset your password or delete your account and all its data below.']].map(([q, a]) => (<details key={q} className="rounded-xl mb-2" style={{ background: T.innerBg, border: `1px solid ${T.border}` }}><summary className="px-3 py-2.5 text-sm font-semibold" style={{ color: T.textSoft, cursor: 'pointer' }}>{q}</summary><p className="px-3 pb-3 text-xs leading-relaxed" style={{ color: T.textMute }}>{a}</p></details>))}
       </Section>
 
       <Section T={T} icon={T.isDark ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />} title="Appearance">
@@ -683,6 +700,11 @@ function SettingsView({ T, uid, email, resetPassword, reauth, reauthGoogle, dele
 
       <Section T={T} icon={<MessageCircle className="w-4 h-4" />} title="Mi chat">
         <button onClick={wipe} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-medium" style={{ background: hexA(T.neg, 0.12), color: T.neg }}>{cleared ? <><Check className="w-4 h-4" />Cleared</> : <><Trash2 className="w-4 h-4" />Clear chat history</>}</button>
+      </Section>
+
+      <Section T={T} icon={<MessageCircle className="w-4 h-4" />} title="Feedback">
+        <button onClick={() => { window.location.href = `mailto:${FEEDBACK_EMAIL}?subject=${encodeURIComponent('MiFi feedback')}&body=${encodeURIComponent('What I liked:\n\nWhat confused me:\n\nOne thing I would change:\n')}`; }} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-medium" style={{ background: T.innerBg, color: T.textSoft, border: `1px solid ${T.border}` }}><MessageCircle className="w-4 h-4" />Send feedback</button>
+        <p className="text-xs mt-2" style={{ color: T.textFaint }}>Opens your email app. Tell us what worked and what did not.</p>
       </Section>
 
       <Section T={T} icon={<User className="w-4 h-4" />} title="Account">
@@ -839,7 +861,7 @@ function Budget({ T, uid, folders, txns, debts, base, rates, personality }) {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-2xl font-bold tracking-tight">Budget</h2>
+      <div className="flex items-center gap-2"><h2 className="text-2xl font-bold tracking-tight">Budget</h2><InfoDot T={T} text="Group planned spending into folders like a month, a trip, or a purchase. Each folder tells you whether it fits your spare money this month and what to commit first." /></div>
       <div className="rounded-3xl p-6" style={{ ...T.card, ...(T.isDark ? { background: 'linear-gradient(160deg, rgba(33,212,224,0.10), rgba(4,17,27,0.4))' } : {}) }}>
         <p className="text-sm mb-1" style={{ color: T.textMute }}>Spare this month</p>
         <p className="text-4xl font-bold tracking-tight tabular-nums" style={{ color: spare >= 0 ? T.pos : T.neg }}>{spare < 0 ? '\u2212' : ''}{money(Math.abs(spare), base)}</p>
@@ -1090,7 +1112,7 @@ function Future({ T, uid, txns, debts, base, rates, personality, strategy, cashB
     const have = f.monthsOfData || 0;
     return (
       <div className="space-y-4">
-        <h2 className="text-2xl font-bold tracking-tight">Future</h2>
+        <div className="flex items-center gap-2"><h2 className="text-2xl font-bold tracking-tight">Future</h2><InfoDot T={T} text="Where your current behaviour leads, month by month. Built from your finished months only, so it needs three of them before it will draw anything. Move the what-if sliders to see how a change plays out." /></div>
         <div className="rounded-3xl p-6 text-center" style={T.card}>
           <Route className="w-10 h-10 mx-auto mb-3" style={{ color: T.textFaint }} />
           <p className="font-bold mb-1" style={{ color: T.textMain }}>Not enough history yet</p>
@@ -1116,7 +1138,7 @@ function Future({ T, uid, txns, debts, base, rates, personality, strategy, cashB
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold tracking-tight">Future</h2>
+        <div className="flex items-center gap-2"><h2 className="text-2xl font-bold tracking-tight">Future</h2><InfoDot T={T} text="Where your current behaviour leads, month by month. Built from your finished months only, so it needs three of them before it will draw anything. Move the what-if sliders to see how a change plays out." /></div>
         <div className="flex gap-1">{[12, 24, 36].map(h => (<button key={h} onClick={() => setHorizon(h)} className="px-2.5 py-1.5 rounded-lg text-xs font-semibold" style={horizon === h ? { background: T.accent, color: T.accentBtnText } : { background: T.innerBg, color: T.textMute }}>{h}m</button>))}</div>
       </div>
 
@@ -1288,4 +1310,18 @@ function forecastHeadline(f, fmt, personality) {
 }
 
 // Exported for render tests only. Not used by the app.
-export const __test = { Future, THEMES };
+export const __test = { Future, THEMES, SettingsView, Dashboard, Budget };
+
+// ===== inline info tooltip =====
+function InfoDot({ T, text }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span style={{ position: 'relative', display: 'inline-flex', verticalAlign: 'middle' }}>
+      <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); setOpen((o) => !o); }} aria-label="What is this?" style={{ width: 18, height: 18, borderRadius: 9, border: `1px solid ${T.textFaint}`, color: T.textFaint, fontSize: 11, fontWeight: 700, lineHeight: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontStyle: 'italic', fontFamily: 'Georgia, serif', flexShrink: 0 }}>i</button>
+      {open && (<>
+        <div onClick={(e) => { e.stopPropagation(); setOpen(false); }} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
+        <div className="rounded-xl p-3 text-xs leading-relaxed" style={{ position: 'absolute', top: 24, left: 0, zIndex: 41, width: 224, ...T.solidPanel, color: T.textSoft }}>{text}</div>
+      </>)}
+    </span>
+  );
+}
