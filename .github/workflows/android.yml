@@ -68,6 +68,16 @@ jobs:
           chmod +x android/gradlew
           cd android && ./gradlew assembleDebug --no-daemon --stacktrace
 
+      # Google sign-in only works if the APK's fingerprint matches the one
+      # registered in Firebase. Print it so a mismatch is obvious in the log
+      # rather than a silent sign-in failure on the phone.
+      - name: Print signing fingerprint
+        run: |
+          keytool -list -v -keystore android/app/debug.keystore \
+            -storepass android -alias androiddebugkey 2>/dev/null \
+            | grep -E "SHA1:|SHA256:" || true
+          echo "The SHA1 above must be registered in Firebase for Google sign-in to work."
+
       - name: Name the APK with the commit
         run: |
           mkdir -p out
