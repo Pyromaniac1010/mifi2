@@ -24,7 +24,13 @@ jobs:
           java-version: 21
           cache: gradle
 
+      # packages: '' is deliberate. By default this action installs a package
+      # called "tools", which Google removed from the SDK repository, and the
+      # step dies with "Failed to find package 'tools'". The runner image
+      # already ships the SDK; Gradle fetches whatever else it needs.
       - uses: android-actions/setup-android@v3
+        with:
+          packages: ''
 
       - name: Install dependencies
         run: npm ci
@@ -62,6 +68,9 @@ jobs:
 
       - name: Sync Capacitor
         run: npx cap sync android
+
+      - name: Accept SDK licences
+        run: yes | sdkmanager --licenses >/dev/null 2>&1 || true
 
       - name: Build debug APK
         run: |
