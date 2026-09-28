@@ -1,0 +1,81 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: npm ci
+
+      # An APK built without Firebase keys installs fine and then shows a blank
+      # screen, which is miserable to debug on a phone. Fail here instead, with
+      # a message that says exactly what to do.
+      - name: Check Firebase secrets are set
+        env:
+          KEYS: ${{ secrets.VITE_FIREBASE_API_KEY }}|${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}|${{ secrets.VITE_FIREBASE_PROJECT_ID }}|${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}|${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}|${{ secrets.VITE_FIREBASE_APP_ID }}
+        run: |
+          NAMES="VITE_FIREBASE_API_KEY VITE_FIREBASE_AUTH_DOMAIN VITE_FIREBASE_PROJECT_ID VITE_FIREBASE_STORAGE_BUCKET VITE_FIREBASE_MESSAGING_SENDER_ID VITE_FIREBASE_APP_ID"
+          MISSING=""
+          i=1
+          for n in $NAMES; do
+            v=$(printf '%s' "$KEYS" | cut -d'|' -f$i)
+            [ -z "$v" ] && MISSING="$MISSING $n"
+            i=$((i+1))
+          done
+          if [ -n "$MISSING" ]; then
+            echo "::error::Missing repo secrets:$MISSING . Add them under Settings > Secrets and variables > Actions, then re-run this workflow. Without them the app installs but opens to a blank screen."
+            exit 1
+          fi
+          echo "All six Firebase secrets are set."
+
+      - name: Build web bundle
+        run: npm run build
+        env:
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Build debug APK
+        run: |
+          chmod +x android/gradlew
+          cd android && ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Name the APK with the commit
+        run: |
+          mkdir -p out
+          cp android/app/build/outputs/apk/debug/app-debug.apk \
+             "out/mifi-${GITHUB_SHA::7}.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mifi-apk
+          path: out/*.apk
+          retention-days: 30

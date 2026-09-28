@@ -5,3 +5,17 @@ dist
 .DS_Store
 *.log
 .rendertest/
+
+# Android build outputs. The android/ project itself is committed, its
+# build products are not.
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+*.apk
+*.aab
+.capacitor/

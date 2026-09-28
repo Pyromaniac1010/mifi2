@@ -4,6 +4,7 @@ import { Lightbulb, LogOut, ArrowLeft, Route, SlidersHorizontal, Target } from '
 import { useAuth } from './context/AuthContext';
 import Login from './components/Login';
 import { buildForecast, costOfDecision, projectDebts } from './lib/forecast';
+import { isNative, wireBackButton, styleStatusBar } from './lib/native';
 import { subscribeTransactions, addTransaction, updateTransaction, deleteTransaction, subscribeDebts, addDebt, updateDebt, deleteDebt, subscribeRecurring, addRecurring, updateRecurring, deleteRecurring, subscribeMessages, addMessage, clearMessages, subscribeBudgetFolders, addBudgetFolder, updateBudgetFolder, deleteBudgetFolder, subscribeProfile, updateProfile, deleteAllUserData } from './lib/db';
 
 const CURRENCIES = [
@@ -142,10 +143,16 @@ export default function App() {
     return () => subs.forEach((u) => u && u());
   }, [user]);
 
+  // Native shell wiring. No-ops on the web.
+  const viewRef = useRef(view);
+  useEffect(() => { viewRef.current = view; }, [view]);
+  useEffect(() => wireBackButton({ getView: () => viewRef.current, setView }), []);
+  useEffect(() => { styleStatusBar(T.isDark); }, [T.isDark]);
+
   useEffect(() => {
     if (!user) return;
     let timer;
-    const reset = () => { clearTimeout(timer); timer = setTimeout(() => logout(), 5 * 60 * 1000); };
+    const reset = () => { clearTimeout(timer); timer = setTimeout(() => logout(), (isNative() ? 60 : 5) * 60 * 1000); };
     const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'];
     events.forEach((e) => window.addEventListener(e, reset, { passive: true }));
     reset();

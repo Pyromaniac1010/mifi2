@@ -1,0 +1,18 @@
+{
+  "appId": "com.mifi.app",
+  "appName": "MiFi",
+  "webDir": "dist",
+  "android": {
+    "backgroundColor": "#04111b",
+    "allowMixedContent": false
+  },
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#04111b"
+    }
+  }
+}
