@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "934199932725",
+    "project_id": "mifi-fd6bb",
+    "storage_bucket": "mifi-fd6bb.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:934199932725:android:a0448c1d5079a776633e7c",
+        "android_client_info": {
+          "package_name": "com.mifi.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "934199932725-77ja85rujfkfv7t7bsghvmsbt2a66c93.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.mifi.app",
+            "certificate_hash": "eb6bef921726350a5d7fd2f85fa2114bb4be9314"
+          }
+        },
+        {
+          "client_id": "934199932725-r589euvniggc43k6gtkahredt5bj4r3l.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCQ04wY3Fv0bgdx1n2dQP-YN2bk0prrNAs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "934199932725-r589euvniggc43k6gtkahredt5bj4r3l.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

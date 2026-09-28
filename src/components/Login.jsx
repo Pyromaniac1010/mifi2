@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { isNative } from '../lib/native';
 
 function prettyError(code) {
   const map = {
@@ -12,6 +11,11 @@ function prettyError(code) {
     'auth/weak-password': 'Password should be at least 6 characters.',
     'auth/popup-closed-by-user': 'Google sign-in was closed before finishing.',
     'auth/too-many-requests': 'Too many tries. Wait a moment and retry.',
+    // Native Google sign-in, which reports failures differently from the popup.
+    'auth/no-id-token': 'Google did not finish signing you in. Try again.',
+    '12501': 'Google sign-in was cancelled.',
+    '10': 'This build of MiFi is not registered with Google. Reinstall the latest version.',
+    '7': 'No internet connection.',
   };
   return map[code] || 'Something went wrong. Try again.';
 }
@@ -109,16 +113,6 @@ export default function Login() {
             <div className="h-px flex-1" style={{ background: inputBorder }} />
           </div>
 
-          {isNative() ? (
-            // Google refuses to serve its sign-in page inside an app's embedded
-            // browser, so the web popup cannot work here. Native sign-in is
-            // coming; until then, say so plainly rather than showing a button
-            // that fails with an error nobody can read.
-            <div className="rounded-xl p-3.5" style={{ background: inputBg, border: `1px solid ${inputBorder}` }}>
-              <p className="text-sm font-medium mb-1" style={{ color: textMain }}>Google sign-in is not in the app yet</p>
-              <p className="text-xs leading-relaxed" style={{ color: textMute }}>If you made your account with Google, open MiFi in your phone's browser for now. Everything syncs, so nothing is lost either way.</p>
-            </div>
-          ) : (
           <button
             onClick={google} disabled={busy}
             className="w-full py-3 rounded-xl font-medium flex items-center justify-center gap-2 disabled:opacity-60"
@@ -127,7 +121,6 @@ export default function Login() {
             <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.76h3.57c2.08-1.92 3.27-4.74 3.27-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.76c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0 0 12 23z"/><path fill="#FBBC05" d="M5.84 14.09a6.6 6.6 0 0 1 0-4.18V7.07H2.18a11 11 0 0 0 0 9.86l3.66-2.84z"/><path fill="#EA4335" d="M12 4.75c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 1.45 14.97.5 12 .5A11 11 0 0 0 2.18 7.07l3.66 2.84C6.71 7.31 9.14 5.38 12 4.75z"/></svg>
             Continue with Google
           </button>
-          )}
         </div>
 
         <p className="text-center text-sm mt-6" style={{ color: textMute }}>

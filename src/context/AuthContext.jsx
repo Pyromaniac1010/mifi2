@@ -13,6 +13,9 @@ import {
   deleteUser,
 } from 'firebase/auth';
 import { auth } from '../lib/firebase';
+import { isNative } from '../lib/native';
+import { nativeGoogleSignIn, nativeGoogleReauth, nativeSignOut } from '../lib/googleAuth';
+
 const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
 export function AuthProvider({ children }) {
@@ -27,11 +30,13 @@ export function AuthProvider({ children }) {
     loading,
     login: (email, pw) => signInWithEmailAndPassword(auth, email, pw),
     signup: (email, pw) => createUserWithEmailAndPassword(auth, email, pw),
-    loginWithGoogle: () => signInWithPopup(auth, new GoogleAuthProvider()),
-    logout: () => signOut(auth),
+    // The popup works in a browser. In the app it is blocked by Google, so
+    // the native account picker is used instead.
+    loginWithGoogle: () => (isNative() ? nativeGoogleSignIn() : signInWithPopup(auth, new GoogleAuthProvider())),
+    logout: async () => { await nativeSignOut(); return signOut(auth); },
     resetPassword: (email) => sendPasswordResetEmail(auth, email),
     reauth: (pw) => reauthenticateWithCredential(auth.currentUser, EmailAuthProvider.credential(auth.currentUser.email, pw)),
-    reauthGoogle: () => reauthenticateWithPopup(auth.currentUser, new GoogleAuthProvider()),
+    reauthGoogle: () => (isNative() ? nativeGoogleReauth() : reauthenticateWithPopup(auth.currentUser, new GoogleAuthProvider())),
     deleteAccount: () => deleteUser(auth.currentUser),
   };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
