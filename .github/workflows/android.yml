@@ -24,14 +24,6 @@ jobs:
           java-version: 21
           cache: gradle
 
-      # packages: '' is deliberate. By default this action installs a package
-      # called "tools", which Google removed from the SDK repository, and the
-      # step dies with "Failed to find package 'tools'". The runner image
-      # already ships the SDK; Gradle fetches whatever else it needs.
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: ''
-
       - name: Install dependencies
         run: npm ci
 
@@ -69,8 +61,25 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
 
-      - name: Accept SDK licences
-        run: yes | sdkmanager --licenses >/dev/null 2>&1 || true
+      # The setup-android action is deliberately not used. It insists on
+      # installing a package called "tools" that Google removed from the SDK,
+      # and its own licence step prompts interactively and hangs. The runner
+      # image already ships a complete SDK with its licences accepted, so the
+      # simplest reliable thing is to use it directly.
+      - name: Prepare Android SDK
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          if [ -z "$ANDROID_HOME" ] || [ ! -d "$ANDROID_HOME" ]; then
+            echo "::error::No Android SDK on this runner. The workflow expects the preinstalled one."
+            exit 1
+          fi
+          echo "Installed platforms:"
+          ls "$ANDROID_HOME/platforms" 2>/dev/null || echo "  (none yet, Gradle will fetch)"
+          # Belt and braces for anything Gradle downloads itself. Piped, never
+          # interactive, and never allowed to fail the build on its own.
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$SDKM" ] && yes | "$SDKM" --licenses >/dev/null 2>&1 || true
+          echo "SDK ready."
 
       - name: Build debug APK
         run: |
