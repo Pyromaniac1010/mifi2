@@ -3,7 +3,7 @@ import { Flame, TrendingUp, TrendingDown, Wallet, ChevronDown, ChevronLeft, Chev
 import { Lightbulb, LogOut, ArrowLeft, Route, SlidersHorizontal, Target } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import Login from './components/Login';
-import { buildForecast, costOfDecision } from './lib/forecast';
+import { buildForecast, costOfDecision, projectDebts } from './lib/forecast';
 import { subscribeTransactions, addTransaction, updateTransaction, deleteTransaction, subscribeDebts, addDebt, updateDebt, deleteDebt, subscribeRecurring, addRecurring, updateRecurring, deleteRecurring, subscribeMessages, addMessage, clearMessages, subscribeBudgetFolders, addBudgetFolder, updateBudgetFolder, deleteBudgetFolder, subscribeProfile, updateProfile, deleteAllUserData } from './lib/db';
 
 const CURRENCIES = [
@@ -507,16 +507,16 @@ function Debts({ T, uid, debts, base, rates, fmt, personality, t, strategy }) {
   const del = (id) => deleteDebt(uid, id);
   const edit = (id, d) => updateDebt(uid, id, d);
   const sorted = orderDebts(debts, strategy, base, rates);
-  const free = freedomDate(debts);
-  const dti = analyzeDebt(debts, base, rates, t);
+  const free = freedomDate(debts, base, rates, strategy);
+  const dti = analyzeDebt(debts, base, rates, t, strategy);
   const verdict = getDebtInsight(dti, fmt, personality);
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between"><h2 className="text-2xl font-bold tracking-tight">Debt Freedom</h2><button onClick={() => setAdding(true)} className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold" style={{ background: T.accent, color: T.accentBtnText, ...T.glow }}><Plus className="w-4 h-4" />Add</button></div>
+      <div className="flex items-center justify-between"><div className="flex items-center gap-2"><h2 className="text-2xl font-bold tracking-tight">Debt Freedom</h2><InfoDot T={T} text="Add each debt with its rate and payment. MiFi works out the real payoff date month by month, shows how much of each payment is pure interest, and orders them so you clear the expensive ones first." /></div><button onClick={() => setAdding(true)} className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold" style={{ background: T.accent, color: T.accentBtnText, ...T.glow }}><Plus className="w-4 h-4" />Add</button></div>
       <MiBanner T={T} personality={personality} text={verdict} />
       {debts.length > 0 && <DebtVitals T={T} dti={dti} fmt={fmt} />}
       {debts.length > 0 && free.never && (<div className="rounded-2xl p-4 flex gap-3" style={{ background: T.isDark ? 'rgba(251,191,36,0.08)' : 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)' }}><AlertTriangle className="w-5 h-5 shrink-0" style={{ color: '#f59e0b' }} /><p className="text-sm" style={{ color: T.isDark ? 'rgba(253,230,138,0.9)' : '#92400e' }}>A payment doesn't cover its interest, so that debt won't clear at this rate. Bump the payment.</p></div>)}
-      {debts.length > 0 && free.date && (<div className="rounded-2xl p-5" style={{ ...T.card, ...(T.isDark ? { background: 'linear-gradient(135deg, rgba(4,17,27,0.6), rgba(15,23,42,0.5))' } : {}) }}><div className="flex items-center gap-2 mb-1"><Calendar className="w-5 h-5" style={{ color: T.accent }} /><span className="text-sm uppercase tracking-wider" style={{ color: T.textMute }}>Freedom Date</span></div><p className="text-2xl font-bold tracking-tight" style={T.isDark ? { textShadow: '0 0 16px rgba(33,212,224,0.4)' } : {}}>{free.date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</p></div>)}
+      {debts.length > 0 && free.date && (<div className="rounded-2xl p-5" style={{ ...T.card, ...(T.isDark ? { background: 'linear-gradient(135deg, rgba(4,17,27,0.6), rgba(15,23,42,0.5))' } : {}) }}><div className="flex items-center gap-2 mb-1"><Calendar className="w-5 h-5" style={{ color: T.accent }} /><span className="text-sm uppercase tracking-wider" style={{ color: T.textMute }}>Freedom Date</span></div><p className="text-2xl font-bold tracking-tight" style={T.isDark ? { textShadow: '0 0 16px rgba(33,212,224,0.4)' } : {}}>{free.date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</p><p className="text-xs mt-1.5" style={{ color: T.textMute }}>{free.months} month{free.months === 1 ? '' : 's'} at this pace, clearing the {strategy === 'snowball' ? 'smallest balance' : 'highest rate'} first. Interest costs you {fmt(free.totalInterest)} along the way.</p></div>)}
       {adding && <DebtForm T={T} base={base} onSave={add} onCancel={() => setAdding(false)} />}
       <div className="space-y-3">{sorted.map((d, i) => <DebtCard key={d.id} T={T} d={d} rank={i + 1} base={base} rates={rates} onDel={del} onEdit={edit} />)}</div>
     </div>
@@ -524,7 +524,7 @@ function Debts({ T, uid, debts, base, rates, fmt, personality, t, strategy }) {
 }
 
 // richer debt analysis
-function analyzeDebt(debts, base, rates, t) {
+function analyzeDebt(debts, base, rates, t, strategy) {
   const total = debts.reduce((s, d) => s + convert(d.principal, d.currency, base, rates), 0);
   const pay = debts.reduce((s, d) => s + convert(d.monthlyPayment, d.currency, base, rates), 0);
   const monthlyInterest = debts.reduce((s, d) => s + convert((d.principal * (d.interestRate / 100)) / 12, d.currency, base, rates), 0);
@@ -534,11 +534,11 @@ function analyzeDebt(debts, base, rates, t) {
   const payRatio = income > 0 ? (pay / income) * 100 : 0; // % of income going to debt service
   const drowning = debts.some(d => d.monthlyPayment <= (d.principal * (d.interestRate / 100)) / 12);
   const interestShare = pay > 0 ? (monthlyInterest / pay) * 100 : 0; // how much of each payment is just interest
-  // payoff estimate (sequential approx)
-  let months = 0, never = false;
-  for (const d of debts) { const mi = (d.principal * (d.interestRate / 100)) / 12; const pp = d.monthlyPayment - mi; if (pp <= 0) { never = true; continue; } months += Math.ceil(d.principal / pp); }
+  // Real amortisation, the same one the Future tab uses, so the two screens
+  // can never disagree about when you are debt free.
+  const sched = projectDebts(debts, { base, rates, strategy });
   const count = debts.length;
-  return { total, pay, highest, income, dtiMonths, payRatio, drowning, interestShare, monthlyInterest, payoffMonths: never ? Infinity : months, count };
+  return { total, pay, highest, income, dtiMonths, payRatio, drowning, interestShare, monthlyInterest, payoffMonths: sched.debtFreeMonth || Infinity, totalInterest: sched.totalInterest, count };
 }
 
 function DebtVitals({ T, dti, fmt }) {
@@ -554,7 +554,13 @@ function DebtVitals({ T, dti, fmt }) {
   );
 }
 
-function freedomDate(debts) { if (!debts.length) return { date: null, never: false }; let months = 0, never = false; for (const d of debts) { const mi = (d.principal * (d.interestRate / 100)) / 12; const pp = d.monthlyPayment - mi; if (pp <= 0) { never = true; continue; } months += Math.ceil(d.principal / pp); } if (never) return { date: null, never: true }; const date = new Date(); date.setMonth(date.getMonth() + months); return { date, never: false }; }
+function freedomDate(debts, base, rates, strategy) {
+  const s = projectDebts(debts, { base, rates, strategy });
+  if (!debts.length) return { date: null, never: false, months: null };
+  if (!s.debtFreeMonth) return { date: null, never: true, months: null };
+  const date = new Date(); date.setMonth(date.getMonth() + s.debtFreeMonth);
+  return { date, never: false, months: s.debtFreeMonth, totalInterest: s.totalInterest };
+}
 function DebtForm({ T, base, initial, onSave, onCancel }) {
   const [f, setF] = useState({ name: initial?.name || '', principal: initial?.principal || '', interestRate: initial?.interestRate || '', monthlyPayment: initial?.monthlyPayment || '', currency: initial?.currency || base });
   const set = (k) => (v) => setF({ ...f, [k]: v });
@@ -610,6 +616,7 @@ function Mi({ T, uid, t, totalDebt, fmt, personality, messages, base, rates }) {
 function SettingsView({ T, uid, email, resetPassword, reauth, reauthGoogle, deleteAccount, provider, name, avatar, bio, goal, base, themeName, personality, strategy, solvencyCap, defaultView, cashBalance, inflation, logout, onClose }) {
   const [nameDraft, setNameDraft] = useState(name || '');
   const [savedName, setSavedName] = useState(false);
+  const [avOpen, setAvOpen] = useState(false);
   const [cleared, setCleared] = useState(false);
   const [bioDraft, setBioDraft] = useState(bio || '');
   const [goalDraft, setGoalDraft] = useState(goal || '');
@@ -647,7 +654,10 @@ function SettingsView({ T, uid, email, resetPassword, reauth, reauthGoogle, dele
         <label className="text-xs font-medium block mb-1" style={{ color: T.textMute }}>Display name</label>
         <div className="flex gap-2"><Input T={T} value={nameDraft} onChange={setNameDraft} placeholder="Your name" /><button onClick={saveName} className="px-4 rounded-xl font-semibold shrink-0" style={{ background: T.accent, color: T.accentBtnText }}>{savedName ? <Check className="w-4 h-4" /> : 'Save'}</button></div>
         <label className="text-xs font-medium block mb-2 mt-4" style={{ color: T.textMute }}>Avatar</label>
-        <div className="grid grid-cols-4 gap-2">{AVATARS.map((_, i) => (<button key={i} onClick={() => pickAvatar(i)} className="rounded-2xl p-1.5 flex items-center justify-center" style={{ background: avatar === i ? T.pillBg : T.innerBg, border: `1px solid ${avatar === i ? T.pillBorder : T.border}` }}><Avatar i={i} size={46} /></button>))}</div>
+        <PickVisual T={T} open={avOpen} onToggle={() => setAvOpen(o => !o)}
+          current={<><Avatar i={avatar} size={34} /><span className="text-sm font-medium" style={{ color: T.textMain }}>Avatar {avatar + 1}</span></>}>
+          <div className="grid grid-cols-4 gap-2">{AVATARS.map((_, i) => (<button key={i} onClick={() => { pickAvatar(i); setAvOpen(false); }} className="rounded-2xl p-1.5 flex items-center justify-center" style={{ background: avatar === i ? T.pillBg : T.innerBg, border: `1px solid ${avatar === i ? T.pillBorder : T.border}` }}><Avatar i={i} size={46} /></button>))}</div>
+        </PickVisual>
         <label className="text-xs font-medium block mb-1 mt-4" style={{ color: T.textMute }}>Bio</label>
         <textarea value={bioDraft} onChange={e => setBioDraft(e.target.value)} rows={2} placeholder="A line about you" className="w-full px-3.5 py-2.5 rounded-xl outline-none resize-none text-sm" style={{ background: T.inputBg, border: `1px solid ${T.inputBorder}`, color: T.textMain }} />
         <label className="text-xs font-medium block mb-1 mt-3" style={{ color: T.textMute }}>Financial goal</label>
@@ -655,8 +665,9 @@ function SettingsView({ T, uid, email, resetPassword, reauth, reauthGoogle, dele
       </Section>
 
       <Section T={T} icon={<Wallet className="w-4 h-4" />} title="Base currency">
-        <p className="text-xs mb-3" style={{ color: T.textFaint }}>Everything is totalled and displayed in this currency. Each entry still keeps its own.</p>
-        <div className="grid grid-cols-2 gap-2">{CURRENCIES.map(c => (<button key={c.code} onClick={() => updateProfile(uid, { baseCurrency: c.code })} className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left" style={pill(base === c.code)}><span className="w-6 font-semibold" style={{ color: base === c.code ? T.accentText : T.textMute }}>{symbolOf(c.code)}</span><span className="text-sm font-medium">{c.code}</span>{base === c.code && <Check className="w-4 h-4 ml-auto" style={{ color: T.accent }} />}</button>))}</div>
+        <PickSelect T={T} value={base} onChange={(v) => updateProfile(uid, { baseCurrency: v })}
+          options={CURRENCIES.map(c => ({ value: c.code, label: `${symbolOf(c.code)}  ${c.code} - ${c.name}` }))}
+          hint="Everything is totalled and displayed in this currency. Each entry still keeps its own." />
       </Section>
 
       <Section T={T} icon={<Route className="w-4 h-4" />} title="Forecast">
@@ -691,11 +702,15 @@ function SettingsView({ T, uid, email, resetPassword, reauth, reauthGoogle, dele
       </Section>
 
       <Section T={T} icon={<Home className="w-4 h-4" />} title="Starting tab">
-        <div className="grid grid-cols-3 gap-2">{views.map(([id, label]) => (<button key={id} onClick={() => updateProfile(uid, { defaultView: id })} className="py-2 rounded-xl text-sm font-medium" style={pill(defaultView === id)}>{label}</button>))}</div>
+        <PickSelect T={T} value={defaultView} onChange={(v) => updateProfile(uid, { defaultView: v })}
+          options={views.map(([id, label]) => ({ value: id, label }))}
+          hint="The tab MiFi opens on." />
       </Section>
 
       <Section T={T} icon={<Sparkles className="w-4 h-4" />} title="Mi's personality">
-        <div className="grid grid-cols-2 gap-2">{Object.entries(PERSONALITIES).map(([k, v]) => (<button key={k} onClick={() => updateProfile(uid, { personality: k })} className="p-3 rounded-xl text-left" style={pill(personality === k)}><div className="text-xl mb-1">{v.emoji}</div><div className="text-sm font-medium" style={{ color: T.textSoft }}>{v.name}</div></button>))}</div>
+        <PickSelect T={T} value={personality} onChange={(v) => updateProfile(uid, { personality: v })}
+          options={Object.entries(PERSONALITIES).map(([k, v]) => ({ value: k, label: `${v.emoji}  ${v.name}` }))}
+          hint="Changes how MiFi talks to you. The numbers behind the advice stay the same." />
       </Section>
 
       <Section T={T} icon={<MessageCircle className="w-4 h-4" />} title="Mi chat">
@@ -1016,72 +1031,111 @@ function Onboarding({ T, uid, email }) {
   );
 }
 
-// ===== pop avatars =====
+// ===== avatars =====
+// Abstract marks rather than faces. Faces drawn in SVG age badly and never
+// quite look like anyone; these read cleanly at 28px and at 56px, and sit
+// properly next to the app's glass and neon.
 const AVATARS = [
-  { bg: ['#22d3ee', '#0e7490'], skin: '#f4cba0', hair: '#1b1b22', shirt: '#0b3a4a', style: 'short', acc: 'shades' },
-  { bg: ['#34e6a4', '#0f9d6b'], skin: '#74441f', hair: '#0c0c0c', shirt: '#f5f5f5', style: 'fade', acc: 'chain' },
-  { bg: ['#a78bfa', '#6d28d9'], skin: '#c98a52', hair: '#241608', shirt: '#f5b14c', style: 'afro', acc: 'roundglasses' },
-  { bg: ['#fb923c', '#ea580c'], skin: '#e7b483', hair: '#101010', shirt: '#0ea5b5', style: 'beanie', acc: 'none' },
-  { bg: ['#fb7185', '#be123c'], skin: '#f4cba0', hair: '#3a1f12', shirt: '#7c3aed', style: 'long', acc: 'hoops' },
-  { bg: ['#38bdf8', '#0369a1'], skin: '#74441f', hair: '#0a0a0a', shirt: '#fb7185', style: 'bun', acc: 'bighoops' },
-  { bg: ['#fbbf24', '#d97706'], skin: '#c98a52', hair: '#1b1109', shirt: '#0ea5b5', style: 'ponytail', acc: 'headphones' },
-  { bg: ['#c084fc', '#7e22ce'], skin: '#e7b483', hair: '#121212', shirt: '#f472b6', style: 'wavy', acc: 'glasses' },
+  { id: 'arc',    bg: ['#21d4e0', '#0b6d8f'], ink: '#eafaff' },
+  { id: 'orbit',  bg: ['#34e6a4', '#0c7f63'], ink: '#eafff6' },
+  { id: 'prism',  bg: ['#8a6cff', '#4321a8'], ink: '#f2ecff' },
+  { id: 'wave',   bg: ['#ff9f43', '#c2410c'], ink: '#fff4e8' },
+  { id: 'bloom',  bg: ['#ff6f96', '#a01046'], ink: '#ffeef3' },
+  { id: 'stack',  bg: ['#3ba9ff', '#1e3a8a'], ink: '#e9f4ff' },
+  { id: 'grid',   bg: ['#ffd23f', '#a16207'], ink: '#fffaec' },
+  { id: 'eclipse',bg: ['#c084fc', '#6b21a8'], ink: '#f9f0ff' },
 ];
-function avatarHairBack(a) {
-  const h = a.hair;
-  if (a.style === 'afro') return <circle cx="40" cy="30" r="20.5" fill={h} />;
-  if (a.style === 'long') return <path d="M20 60 C13 30 67 30 60 60 L60 30 C60 13 20 13 20 30 Z" fill={h} />;
-  if (a.style === 'wavy') return <path d="M18 61 C11 30 69 30 62 61 C62 46 62 32 60 27 C60 13 20 13 20 27 C18 32 18 46 18 61 Z" fill={h} />;
-  if (a.style === 'ponytail') return <path d="M53 25 C69 27 71 49 60 61 C67 46 60 32 49 30 Z" fill={h} />;
-  return null;
-}
-function avatarHairFront(a) {
-  const h = a.hair;
-  if (a.style === 'short') return <path d="M23 30 C23 13 57 13 57 30 C57 20 50 17 40 17 C30 17 23 20 23 30 Z" fill={h} />;
-  if (a.style === 'fade') return <path d="M26 27 C26 16 54 16 54 27 C54 21 48 18.5 40 18.5 C32 18.5 26 21 26 27 Z" fill={h} />;
-  if (a.style === 'afro') return null;
-  if (a.style === 'beanie') return (<g><path d="M22 31 C22 11 58 11 58 31 Z" fill={h} /><rect x="21" y="27" width="38" height="6.5" rx="3.25" fill={a.bg[0]} /></g>);
-  if (a.style === 'long') return <path d="M24 30 C24 14 56 14 56 30 C56 19 48 16.5 40 16.5 C32 16.5 24 19 24 30 Z" fill={h} />;
-  if (a.style === 'bun') return (<g><path d="M24 29 C24 14 56 14 56 29 C56 19 48 16.5 40 16.5 C32 16.5 24 19 24 29 Z" fill={h} /><circle cx="40" cy="11" r="6" fill={h} /></g>);
-  if (a.style === 'ponytail') return <path d="M24 29 C24 14 56 14 56 29 C56 19 48 16.5 40 16.5 C32 16.5 24 19 24 29 Z" fill={h} />;
-  if (a.style === 'wavy') return <path d="M24 30 C24 14 56 14 56 30 C56 19 47 16.5 40 16.5 C33 16.5 24 19 24 30 Z" fill={h} />;
-  return null;
-}
-function avatarAcc(a) {
-  if (a.acc === 'shades') return (<g><rect x="26" y="30" width="12" height="8" rx="3" fill="#15151b" /><rect x="42" y="30" width="12" height="8" rx="3" fill="#15151b" /><rect x="37.5" y="32.2" width="5" height="2" rx="1" fill="#15151b" /><rect x="28.2" y="31.6" width="4" height="2" rx="1" fill="rgba(255,255,255,0.55)" /></g>);
-  if (a.acc === 'glasses') return (<g fill="none" stroke="#211a14" strokeWidth="2"><circle cx="33.5" cy="34" r="5.4" /><circle cx="46.5" cy="34" r="5.4" /><path d="M39 34 H41" /></g>);
-  if (a.acc === 'roundglasses') return (<g fill="none" stroke="#f3c14b" strokeWidth="2.2"><circle cx="33.5" cy="34" r="5.8" /><circle cx="46.5" cy="34" r="5.8" /><path d="M39.3 34 H40.7" /></g>);
-  if (a.acc === 'headphones') return (<g><path d="M21 32 C21 12 59 12 59 32" fill="none" stroke="#1b1b22" strokeWidth="4" strokeLinecap="round" /><rect x="16" y="31" width="9" height="13" rx="4.5" fill="#1b1b22" /><rect x="55" y="31" width="9" height="13" rx="4.5" fill={a.bg[0]} /></g>);
-  if (a.acc === 'hoops') return (<g fill="none" stroke="#f3c14b" strokeWidth="2.2"><circle cx="24" cy="42" r="3.4" /><circle cx="56" cy="42" r="3.4" /></g>);
-  if (a.acc === 'bighoops') return (<g fill="none" stroke="#f3c14b" strokeWidth="2.4"><circle cx="23.5" cy="43" r="4.6" /><circle cx="56.5" cy="43" r="4.6" /></g>);
-  if (a.acc === 'chain') return (<g><path d="M31 58 Q40 67 49 58" fill="none" stroke="#f5c542" strokeWidth="2.4" /><circle cx="40" cy="64.4" r="2" fill="#f5c542" /></g>);
-  return null;
+function avatarMark(a) {
+  const k = a.ink;
+  switch (a.id) {
+    case 'arc': return (<g fill="none" stroke={k} strokeLinecap="round">
+      <path d="M22 54 A18 18 0 0 1 58 54" strokeWidth="5" opacity="0.95" />
+      <path d="M32 54 A8 8 0 0 1 48 54" strokeWidth="5" opacity="0.55" />
+      <circle cx="40" cy="26" r="3.6" fill={k} stroke="none" /></g>);
+    case 'orbit': return (<g>
+      <circle cx="40" cy="40" r="19" fill="none" stroke={k} strokeWidth="4" opacity="0.4" />
+      <circle cx="40" cy="40" r="8.5" fill={k} />
+      <circle cx="40" cy="21" r="4.6" fill={k} /></g>);
+    case 'prism': return (<g>
+      <path d="M40 20 L59 52 H21 Z" fill="none" stroke={k} strokeWidth="4.5" strokeLinejoin="round" opacity="0.92" />
+      <path d="M40 34 L49 52 H31 Z" fill={k} opacity="0.55" /></g>);
+    case 'wave': return (<g fill="none" stroke={k} strokeWidth="4.6" strokeLinecap="round">
+      <path d="M18 34 Q29 24 40 34 T62 34" opacity="0.5" />
+      <path d="M18 46 Q29 36 40 46 T62 46" opacity="0.95" /></g>);
+    case 'bloom': return (<g fill={k}>
+      <circle cx="40" cy="28" r="9" opacity="0.95" />
+      <circle cx="29" cy="47" r="9" opacity="0.62" />
+      <circle cx="51" cy="47" r="9" opacity="0.62" /></g>);
+    case 'stack': return (<g fill={k}>
+      <rect x="22" y="44" width="36" height="7" rx="3.5" opacity="0.95" />
+      <rect x="27" y="33" width="26" height="7" rx="3.5" opacity="0.68" />
+      <rect x="32" y="22" width="16" height="7" rx="3.5" opacity="0.42" /></g>);
+    case 'grid': return (<g fill={k}>
+      {[26, 40, 54].map((y, r) => [26, 40, 54].map((x, c) => (
+        <circle key={`${r}${c}`} cx={x} cy={y} r={5 - Math.abs(r - 1) * 1.1} opacity={0.95 - (r + c) * 0.1} />)))}</g>);
+    case 'eclipse': return (<g>
+      <circle cx="34" cy="40" r="17" fill={k} opacity="0.95" />
+      <circle cx="48" cy="40" r="17" fill={a.bg[1]} opacity="0.85" /></g>);
+    default: return null;
+  }
 }
 function Avatar({ i, size = 56 }) {
   const a = AVATARS[i % AVATARS.length];
-  const gid = 'avg' + i;
-  const showEyes = a.acc !== 'shades';
+  const gid = 'av' + a.id;
   return (
-    <svg width={size} height={size} viewBox="0 0 80 80" style={{ display: 'block', borderRadius: '50%' }}>
+    <svg width={size} height={size} viewBox="0 0 80 80" style={{ display: 'block', borderRadius: '50%', flexShrink: 0 }}>
       <defs>
         <linearGradient id={gid} x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor={a.bg[0]} /><stop offset="100%" stopColor={a.bg[1]} /></linearGradient>
         <clipPath id={gid + 'c'}><circle cx="40" cy="40" r="40" /></clipPath>
       </defs>
       <g clipPath={`url(#${gid}c)`}>
         <rect width="80" height="80" fill={`url(#${gid})`} />
-        {avatarHairBack(a)}
-        <path d="M8 80 C8 62 22 56 40 56 C58 56 72 62 72 80 Z" fill={a.shirt} />
-        <path d="M40 56 L34.5 63 L40 69 L45.5 63 Z" fill="rgba(255,255,255,0.14)" />
-        <rect x="34.5" y="46" width="11" height="12" rx="5" fill={a.skin} />
-        <ellipse cx="40" cy="34" rx="16" ry="17.5" fill={a.skin} />
-        <circle cx="24.6" cy="36" r="3.2" fill={a.skin} />
-        <circle cx="55.4" cy="36" r="3.2" fill={a.skin} />
-        {avatarHairFront(a)}
-        {showEyes && <g fill="#241d18"><circle cx="33.6" cy="34" r="1.9" /><circle cx="46.4" cy="34" r="1.9" /></g>}
-        <path d="M34.5 41 Q40 45.6 45.5 41" stroke="#241d18" strokeWidth="1.6" fill="none" strokeLinecap="round" />
-        {avatarAcc(a)}
+        <circle cx="16" cy="14" r="26" fill="#ffffff" opacity="0.10" />
+        {avatarMark(a)}
       </g>
     </svg>
+  );
+}
+
+// ===== inline info tooltip =====
+function InfoDot({ T, text }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span style={{ position: 'relative', display: 'inline-flex', verticalAlign: 'middle' }}>
+      <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); setOpen((o) => !o); }} aria-label="What is this?" style={{ width: 18, height: 18, borderRadius: 9, border: `1px solid ${T.textFaint}`, color: T.textFaint, fontSize: 11, fontWeight: 700, lineHeight: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontStyle: 'italic', fontFamily: 'Georgia, serif', flexShrink: 0 }}>i</button>
+      {open && (<>
+        <div onClick={(e) => { e.stopPropagation(); setOpen(false); }} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
+        <div className="rounded-xl p-3 text-xs leading-relaxed" style={{ position: 'absolute', top: 24, left: 0, zIndex: 41, width: 224, ...T.solidPanel, color: T.textSoft }}>{text}</div>
+      </>)}
+    </span>
+  );
+}
+
+// ===== compact settings controls =====
+// A labelled native select. Native is deliberate: on a phone it opens the
+// system wheel, which is faster to scan than a wall of buttons.
+function PickSelect({ T, value, onChange, options, hint }) {
+  return (
+    <>
+      <select value={value} onChange={e => onChange(e.target.value)} className="w-full px-3.5 py-3 rounded-xl outline-none text-sm font-medium appearance-none" style={{ background: T.selectBg, border: `1px solid ${T.inputBorder}`, color: T.textMain, backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='${encodeURIComponent(T.textMute)}' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', paddingRight: 40 }}>
+        {options.map(o => <option key={o.value} value={o.value} style={{ background: T.selectBg, color: T.textMain }}>{o.label}</option>)}
+      </select>
+      {hint && <p className="text-xs mt-2" style={{ color: T.textFaint }}>{hint}</p>}
+    </>
+  );
+}
+
+// A picker that has to stay visual, so it collapses to the current choice
+// and opens a grid on tap.
+function PickVisual({ T, open, onToggle, current, children }) {
+  return (
+    <>
+      <button onClick={onToggle} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl" style={{ background: T.selectBg, border: `1px solid ${T.inputBorder}` }}>
+        {current}
+        <ChevronDown className="w-4 h-4 ml-auto shrink-0" style={{ color: T.textMute, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
+      </button>
+      {open && <div className="mt-2">{children}</div>}
+    </>
   );
 }
 
@@ -1310,18 +1364,4 @@ function forecastHeadline(f, fmt, personality) {
 }
 
 // Exported for render tests only. Not used by the app.
-export const __test = { Future, THEMES, SettingsView, Dashboard, Budget };
-
-// ===== inline info tooltip =====
-function InfoDot({ T, text }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <span style={{ position: 'relative', display: 'inline-flex', verticalAlign: 'middle' }}>
-      <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); setOpen((o) => !o); }} aria-label="What is this?" style={{ width: 18, height: 18, borderRadius: 9, border: `1px solid ${T.textFaint}`, color: T.textFaint, fontSize: 11, fontWeight: 700, lineHeight: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontStyle: 'italic', fontFamily: 'Georgia, serif', flexShrink: 0 }}>i</button>
-      {open && (<>
-        <div onClick={(e) => { e.stopPropagation(); setOpen(false); }} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
-        <div className="rounded-xl p-3 text-xs leading-relaxed" style={{ position: 'absolute', top: 24, left: 0, zIndex: 41, width: 224, ...T.solidPanel, color: T.textSoft }}>{text}</div>
-      </>)}
-    </span>
-  );
-}
+export const __test = { Future, THEMES, SettingsView, Dashboard, Budget, Debts, Avatar };

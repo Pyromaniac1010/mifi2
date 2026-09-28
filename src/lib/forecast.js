@@ -204,6 +204,16 @@ function runDebts(debts, base, rates, months, { strategy = 'avalanche', extra = 
   };
 }
 
+// The debt schedule on its own, for screens that care about debt but not
+// about the full forecast. Same amortisation the forecast uses, so the app
+// never shows two different payoff dates for the same debts.
+export function projectDebts(debts = [], { base = 'NGN', rates = null, months = 600, strategy = 'avalanche', extra = 0, rollover = true } = {}) {
+  if (!debts.length) return { rows: [], stuck: false, debtFreeMonth: null, startingDebt: 0, totalInterest: 0 };
+  const r = runDebts(debts, base, rates, months, { strategy, extra, rollover });
+  const upto = r.debtFreeMonth || r.rows.length;
+  return { ...r, totalInterest: r.rows.slice(0, upto).reduce((s, x) => s + x.interestPaid, 0) };
+}
+
 // ---------- the forecast ----------
 
 /**
