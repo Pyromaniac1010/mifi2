@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Flame, TrendingUp, TrendingDown, Wallet, ChevronDown, ChevronLeft, ChevronRight, Plus, Trash2, Pencil, CreditCard, Calendar, AlertTriangle, MessageCircle, Send, Settings, Home, Receipt, Sparkles, ArrowUpRight, ArrowDownRight, X, User, Moon, Sun, Check, ShoppingCart, Utensils, Car, Zap, Wifi, Tv, ShoppingBag, Heart, Film, Gift, GraduationCap, MoreHorizontal, Briefcase, Music, RefreshCw, Laptop, Store, BarChart3, List, Repeat, Clock, Bell } from 'lucide-react';
-import { Lightbulb, LogOut, ArrowLeft } from 'lucide-react';
+import { Lightbulb, LogOut, ArrowLeft, Route, SlidersHorizontal, Target } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import Login from './components/Login';
+import { buildForecast, costOfDecision } from './lib/forecast';
 import { subscribeTransactions, addTransaction, updateTransaction, deleteTransaction, subscribeDebts, addDebt, updateDebt, deleteDebt, subscribeRecurring, addRecurring, updateRecurring, deleteRecurring, subscribeMessages, addMessage, clearMessages, subscribeBudgetFolders, addBudgetFolder, updateBudgetFolder, deleteBudgetFolder, subscribeProfile, updateProfile, deleteAllUserData } from './lib/db';
 
 const CURRENCIES = [
@@ -95,6 +96,8 @@ export default function App() {
   const [strategy, setStrategy] = useState('avalanche');
   const [solvencyCap, setSolvencyCap] = useState(true);
   const [defaultView, setDefaultView] = useState('dashboard');
+  const [cashBalance, setCashBalance] = useState(0);
+  const [inflation, setInflation] = useState(0);
   const [name, setName] = useState('');
   const [avatar, setAvatar] = useState(0);
   const [bio, setBio] = useState('');
@@ -126,6 +129,8 @@ export default function App() {
         setAvatar(Number.isInteger(p.avatar) ? p.avatar : 0);
         setBio(p.bio || '');
         setGoal(p.goal || '');
+        setCashBalance(Number.isFinite(p.cashBalance) ? p.cashBalance : 0);
+        setInflation(Number.isFinite(p.inflation) ? p.inflation : 0);
         setOnboarded(p.onboarded === true || !!(p.name && String(p.name).trim()));
         setProfileReady(true);
         if (!didInit.current) { setView(p.defaultView || 'dashboard'); didInit.current = true; }
@@ -160,7 +165,7 @@ export default function App() {
   const logRecur = async (rec) => { const due = nextDue(rec); await addTransaction(uid, { type: rec.type, cat: rec.cat, incomeType: rec.type === 'income' ? rec.incomeType : null, amount: rec.amount, currency: rec.currency, note: rec.note, date: Math.min(due, Date.now()) }); await updateRecurring(uid, rec.id, { lastLogged: due }); };
   const skipRecur = async (rec) => { const due = nextDue(rec); await updateRecurring(uid, rec.id, { lastLogged: due }); };
 
-  const nav = [{ id: 'dashboard', label: 'Home', icon: Home }, { id: 'transactions', label: 'Money', icon: Receipt }, { id: 'budget', label: 'Budget', icon: Lightbulb }, { id: 'debts', label: 'Debts', icon: CreditCard }, { id: 'mi', label: 'MiFi', icon: MessageCircle }];
+  const nav = [{ id: 'dashboard', label: 'Home', icon: Home }, { id: 'transactions', label: 'Money', icon: Receipt }, { id: 'budget', label: 'Budget', icon: Lightbulb }, { id: 'debts', label: 'Debts', icon: CreditCard }, { id: 'future', label: 'Future', icon: Route }, { id: 'mi', label: 'MiFi', icon: MessageCircle }];
 
   return (
     <div className="min-h-screen" style={{ background: T.pageBg, color: T.textMain }}>
@@ -189,13 +194,14 @@ export default function App() {
         {view === 'transactions' && <Money T={T} uid={uid} txns={txns} recur={recur} logRecur={logRecur} skipRecur={skipRecur} base={base} rates={rates} />}
         {view === 'budget' && <Budget T={T} uid={uid} folders={folders} txns={txns} debts={debts} base={base} rates={rates} personality={personality} />}
         {view === 'debts' && <Debts T={T} uid={uid} debts={debts} base={base} rates={rates} fmt={fmt} personality={personality} t={t} strategy={strategy} />}
+        {view === 'future' && <Future T={T} uid={uid} txns={txns} debts={debts} base={base} rates={rates} personality={personality} strategy={strategy} cashBalance={cashBalance} inflation={inflation} onNav={setView} />}
         {view === 'mi' && <Mi T={T} uid={uid} t={t} totalDebt={totalDebt} fmt={fmt} personality={personality} messages={messages} base={base} rates={rates} />}
-        {view === 'settings' && <SettingsView T={T} uid={uid} email={user.email} resetPassword={resetPassword} reauth={reauth} reauthGoogle={reauthGoogle} deleteAccount={deleteAccount} provider={user.providerData && user.providerData[0] ? user.providerData[0].providerId : 'password'} name={name} avatar={avatar} bio={bio} goal={goal} base={base} themeName={themeName} personality={personality} strategy={strategy} solvencyCap={solvencyCap} defaultView={defaultView} logout={logout} onClose={() => setView('dashboard')} />}
+        {view === 'settings' && <SettingsView T={T} uid={uid} email={user.email} resetPassword={resetPassword} reauth={reauth} reauthGoogle={reauthGoogle} deleteAccount={deleteAccount} provider={user.providerData && user.providerData[0] ? user.providerData[0].providerId : 'password'} name={name} avatar={avatar} bio={bio} goal={goal} base={base} themeName={themeName} personality={personality} strategy={strategy} solvencyCap={solvencyCap} defaultView={defaultView} cashBalance={cashBalance} inflation={inflation} logout={logout} onClose={() => setView('dashboard')} />}
       </main>
 
       <nav className="fixed bottom-0 inset-x-0 z-40" style={{ background: T.navBg, backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', borderTop: `1px solid ${T.border}` }}>
-        <div className="max-w-md mx-auto px-3 py-3 flex justify-between">
-          {nav.map(({ id, label, icon: Icon }) => { const on = view === id; const badge = id === 'transactions' && dueCount > 0; return (<button key={id} onClick={() => setView(id)} className="flex flex-col items-center gap-1 px-2.5 py-1 relative"><div className="relative"><Icon className="w-6 h-6" style={on ? { color: T.accent, filter: T.isDark ? 'drop-shadow(0 0 6px rgba(33,212,224,0.6))' : 'none' } : { color: T.textFaint }} />{badge && <span className="absolute -top-1 -right-1.5 min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ background: T.neg, color: '#fff' }}>{dueCount}</span>}</div><span className="text-xs font-medium" style={{ color: on ? T.accentText : T.textFaint }}>{label}</span></button>); })}
+        <div className="max-w-md mx-auto px-2 py-3 flex justify-between">
+          {nav.map(({ id, label, icon: Icon }) => { const on = view === id; const badge = id === 'transactions' && dueCount > 0; return (<button key={id} onClick={() => setView(id)} className="flex flex-col items-center gap-1 px-1.5 py-1 relative"><div className="relative"><Icon className="w-[22px] h-[22px]" style={on ? { color: T.accent, filter: T.isDark ? 'drop-shadow(0 0 6px rgba(33,212,224,0.6))' : 'none' } : { color: T.textFaint }} />{badge && <span className="absolute -top-1 -right-1.5 min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ background: T.neg, color: '#fff' }}>{dueCount}</span>}</div><span className="text-[11px] font-medium" style={{ color: on ? T.accentText : T.textFaint }}>{label}</span></button>); })}
         </div>
       </nav>
     </div>
@@ -598,7 +604,7 @@ function Mi({ T, uid, t, totalDebt, fmt, personality, messages, base, rates }) {
 }
 
 // ---------- SETTINGS ----------
-function SettingsView({ T, uid, email, resetPassword, reauth, reauthGoogle, deleteAccount, provider, name, avatar, bio, goal, base, themeName, personality, strategy, solvencyCap, defaultView, logout, onClose }) {
+function SettingsView({ T, uid, email, resetPassword, reauth, reauthGoogle, deleteAccount, provider, name, avatar, bio, goal, base, themeName, personality, strategy, solvencyCap, defaultView, cashBalance, inflation, logout, onClose }) {
   const [nameDraft, setNameDraft] = useState(name || '');
   const [savedName, setSavedName] = useState(false);
   const [cleared, setCleared] = useState(false);
@@ -606,6 +612,10 @@ function SettingsView({ T, uid, email, resetPassword, reauth, reauthGoogle, dele
   const [goalDraft, setGoalDraft] = useState(goal || '');
   const [savedAbout, setSavedAbout] = useState(false);
   const [resetSent, setResetSent] = useState(false);
+  const [cashDraft, setCashDraft] = useState(cashBalance ? String(cashBalance) : '');
+  const [savedCash, setSavedCash] = useState(false);
+  const [inflDraft, setInflDraft] = useState(inflation ? String(inflation) : '');
+  const [savedInfl, setSavedInfl] = useState(false);
   const [delOpen, setDelOpen] = useState(false);
   const [delPw, setDelPw] = useState('');
   const [delConfirm, setDelConfirm] = useState('');
@@ -613,6 +623,10 @@ function SettingsView({ T, uid, email, resetPassword, reauth, reauthGoogle, dele
   const [delErr, setDelErr] = useState('');
   useEffect(() => { setNameDraft(name || ''); }, [name]);
   useEffect(() => { setBioDraft(bio || ''); setGoalDraft(goal || ''); }, [bio, goal]);
+  useEffect(() => { setCashDraft(cashBalance ? String(cashBalance) : ''); }, [cashBalance]);
+  useEffect(() => { setInflDraft(inflation ? String(inflation) : ''); }, [inflation]);
+  const saveCash = () => { const v = parseFloat(cashDraft); updateProfile(uid, { cashBalance: Number.isFinite(v) && v >= 0 ? v : 0 }); setSavedCash(true); setTimeout(() => setSavedCash(false), 1500); };
+  const saveInfl = () => { const v = parseFloat(inflDraft); updateProfile(uid, { inflation: Number.isFinite(v) && v >= 0 ? Math.min(v, 100) : 0 }); setSavedInfl(true); setTimeout(() => setSavedInfl(false), 1500); };
   const saveName = () => { updateProfile(uid, { name: nameDraft.trim() }); setSavedName(true); setTimeout(() => setSavedName(false), 1500); };
   const saveAbout = () => { updateProfile(uid, { bio: bioDraft.trim(), goal: goalDraft.trim() }); setSavedAbout(true); setTimeout(() => setSavedAbout(false), 1500); };
   const pickAvatar = (i) => updateProfile(uid, { avatar: i });
@@ -921,6 +935,9 @@ function brotherReply(q, t, totalDebt, fmt) {
 
 // ===== budget folder helpers =====
 const NEED_CATS = ['rent', 'bills', 'data', 'transport', 'groceries', 'health', 'education', 'family'];
+// Spending you cannot meaningfully dial down month to month. Kept out of the
+// forecast's what-if sliders, because pretending otherwise is fantasy.
+const FIXED_CATS = ['rent', 'health', 'education'];
 function folderTotals(folder, base, rates) {
   let total = 0, considering = 0;
   (folder.items || []).forEach(it => { const v = convert(it.amount, it.currency || base, base, rates); total += v; if (it.status !== 'onhold') considering += v; });
@@ -1045,3 +1062,230 @@ function Avatar({ i, size = 56 }) {
     </svg>
   );
 }
+
+
+// ---------- FUTURE (forecast map) ----------
+function Future({ T, uid, txns, debts, base, rates, personality, strategy, cashBalance, inflation, onNav }) {
+  const [horizon, setHorizon] = useState(24);
+  const [mode, setMode] = useState('cash');
+  const [cuts, setCuts] = useState({});          // { cat: percentCut }
+  const [extraPassive, setExtraPassive] = useState('');
+  const [extraDebt, setExtraDebt] = useState('');
+  const [askAmount, setAskAmount] = useState('');
+
+  const num = (s) => { const v = parseFloat(s); return Number.isFinite(v) && v > 0 ? v : 0; };
+  const catDeltas = {};
+  Object.entries(cuts).forEach(([c, pct]) => { if (pct) catDeltas[c] = -pct / 100; });
+  const scenario = { catDeltas, extraPassive: num(extraPassive), extraDebtPayment: num(extraDebt) };
+  const touched = Object.keys(catDeltas).length > 0 || scenario.extraPassive > 0 || scenario.extraDebtPayment > 0;
+
+  const opts = { txns, debts, base, rates, months: horizon, startingCash: cashBalance || 0, inflation: inflation || 0, strategy };
+  const plain = useMemo(() => buildForecast(opts), [txns, debts, base, rates, horizon, cashBalance, inflation, strategy]);
+  const f = useMemo(() => buildForecast({ ...opts, scenario }), [txns, debts, base, rates, horizon, cashBalance, inflation, strategy, JSON.stringify(scenario)]);
+  const cost = useMemo(() => (num(askAmount) > 0 ? costOfDecision(num(askAmount), { ...opts, scenario }) : null), [askAmount, txns, debts, base, rates, horizon, cashBalance, inflation, strategy, JSON.stringify(scenario)]);
+
+  const fmt = (n) => money(n, base);
+
+  if (!f.ready) {
+    const have = f.monthsOfData || 0;
+    return (
+      <div className="space-y-4">
+        <h2 className="text-2xl font-bold tracking-tight">Future</h2>
+        <div className="rounded-3xl p-6 text-center" style={T.card}>
+          <Route className="w-10 h-10 mx-auto mb-3" style={{ color: T.textFaint }} />
+          <p className="font-bold mb-1" style={{ color: T.textMain }}>Not enough history yet</p>
+          <p className="text-sm mb-4" style={{ color: T.textMute }}>MiFi needs three full months of logged activity before it will draw your future. Anything less and the line would be a guess dressed up as a forecast.</p>
+          <div className="flex justify-center gap-2 mb-4">{[0, 1, 2].map(i => (<span key={i} className="w-12 h-1.5 rounded-full" style={{ background: i < have ? T.accent : T.barTrack }} />))}</div>
+          <p className="text-xs mb-4" style={{ color: T.textFaint }}>{have} of 3 months. The month you are in does not count until it ends.</p>
+          <button onClick={() => onNav('transactions')} className="px-4 py-2.5 rounded-xl text-sm font-semibold" style={{ background: T.accent, color: T.accentBtnText, ...T.glow }}>Log transactions</button>
+        </div>
+      </div>
+    );
+  }
+
+  const m0 = f.months[0];
+  const last = f.months[f.months.length - 1];
+  // Only offer sliders on spending you could actually change this month.
+  // Suggesting someone cut their rent by 40% is not advice, it is noise.
+  const ranked = Object.entries(f.baseline.byCat).sort((a, b) => b[1] - a[1]);
+  const flexible = ranked.filter(([c]) => !FIXED_CATS.includes(c));
+  const topCats = (flexible.length ? flexible : ranked).slice(0, 3);
+  const monthLabel = (mo) => (mo ? f.months[mo - 1].label : null);
+  const reset = () => { setCuts({}); setExtraPassive(''); setExtraDebt(''); };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold tracking-tight">Future</h2>
+        <div className="flex gap-1">{[12, 24, 36].map(h => (<button key={h} onClick={() => setHorizon(h)} className="px-2.5 py-1.5 rounded-lg text-xs font-semibold" style={horizon === h ? { background: T.accent, color: T.accentBtnText } : { background: T.innerBg, color: T.textMute }}>{h}m</button>))}</div>
+      </div>
+
+      <MiBanner T={T} personality={personality} text={forecastHeadline(f, fmt, personality)} />
+
+      <div className="grid grid-cols-3 gap-2">
+        <FutureTile T={T} label="Debt free" value={f.milestones.startingDebt <= 0 ? 'Already' : (f.milestones.debtStuck ? 'Never' : (monthLabel(f.milestones.debtFreeMonth) || `${horizon}m+`))} sub={f.milestones.startingDebt <= 0 ? 'nothing owed' : (f.milestones.debtStuck ? 'payment too low' : 'at this pace')} tone={f.milestones.debtStuck ? T.neg : (f.milestones.startingDebt <= 0 ? T.pos : T.accentText)} />
+        <FutureTile T={T} label="Self funding" value={monthLabel(f.milestones.solvencyMonth) || 'Not yet'} sub={f.milestones.solvencyMonth ? 'passive covers all' : 'needs more passive'} tone={f.milestones.solvencyMonth ? T.pos : T.textMute} />
+        <FutureTile T={T} label="Runway" value={f.milestones.runwayMonths === null ? 'Set it' : `${f.milestones.runwayMonths.toFixed(1)}m`} sub={f.milestones.runwayMonths === null ? 'add a balance' : 'if income stopped'} tone={f.milestones.runwayMonths === null ? T.textFaint : (f.milestones.runwayMonths < 3 ? T.neg : T.accentText)} />
+      </div>
+
+      {f.milestones.runwayMonths === null && (
+        <button onClick={() => onNav('settings')} className="w-full rounded-2xl p-4 text-left flex items-center gap-3" style={{ ...T.card, border: `1px solid ${T.pillBorder}` }}>
+          <Target className="w-5 h-5 shrink-0" style={{ color: T.accent }} />
+          <span className="flex-1"><span className="block text-sm font-semibold" style={{ color: T.textMain }}>Tell MiFi what you actually have</span><span className="block text-xs" style={{ color: T.textMute }}>It tracks money moving, not money sitting. One number in Settings unlocks runway and a real balance line.</span></span>
+          <ChevronRight className="w-4 h-4 shrink-0" style={{ color: T.textFaint }} />
+        </button>
+      )}
+
+      <div className="rounded-2xl p-5" style={T.card}>
+        <div className="grid grid-cols-3 gap-2 p-1 rounded-2xl mb-4" style={{ background: T.innerBg }}>
+          {[['cash', f.tracksBalance ? 'Balance' : 'Saved up'], ['solvency', 'Solvency'], ['debt', 'Debt']].map(([id, label]) => (<button key={id} onClick={() => setMode(id)} className="py-2 rounded-xl text-xs font-semibold" style={mode === id ? { background: T.accent, color: T.accentBtnText } : { color: T.textMute }}>{label}</button>))}
+        </div>
+        <FutureChart T={T} months={f.months} mode={mode} base={base} tracksBalance={f.tracksBalance} />
+        <p className="text-xs mt-3 leading-relaxed" style={{ color: T.textFaint }}>
+          {mode === 'cash' && (f.tracksBalance ? 'Your balance as it moves. The shaded band is how far off this could run, based on how much your months actually vary.' : 'How much you pile up from today. This is not your balance, MiFi does not know it yet. The band is your month to month variation.')}
+          {mode === 'solvency' && 'How much of your monthly obligations your passive income covers. 100% is the goal, because that is the month your salary stops being the thing holding you up.'}
+          {mode === 'debt' && 'What you still owe, month by month, with interest properly accounted for.'}
+        </p>
+      </div>
+
+      <div className="rounded-2xl p-5" style={T.card}>
+        <div className="flex items-center justify-between mb-1"><div className="flex items-center gap-2"><SlidersHorizontal className="w-4 h-4" style={{ color: T.accent }} /><h3 className="font-semibold" style={{ color: T.textMain }}>What if</h3></div>{touched && <button onClick={reset} className="text-xs font-medium" style={{ color: T.accentText }}>Reset</button>}</div>
+        <p className="text-xs mb-4" style={{ color: T.textFaint }}>Move these and the map above redraws. Nothing here is saved, it is just you thinking out loud.</p>
+
+        {topCats.map(([cat, avg]) => { const m = catMeta(cat); const pct = cuts[cat] || 0; return (
+          <div key={cat} className="mb-4">
+            <div className="flex items-center justify-between mb-1.5"><span className="flex items-center gap-2 text-sm font-medium" style={{ color: T.textSoft }}><m.icon className="w-4 h-4" style={{ color: m.color }} />Spend less on {m.label.toLowerCase()}</span><span className="text-xs font-semibold tabular-nums" style={{ color: pct ? T.pos : T.textFaint }}>{pct ? `−${pct}%` : `${money(avg, base, 0)}/mo`}</span></div>
+            <input type="range" min="0" max="50" step="5" value={pct} onChange={e => setCuts({ ...cuts, [cat]: parseInt(e.target.value) })} className="w-full" style={{ accentColor: T.accent }} />
+            {pct > 0 && <p className="text-xs mt-1" style={{ color: T.pos }}>Frees {money(avg * pct / 100, base, 0)} a month</p>}
+          </div>); })}
+
+        <label className="text-xs font-medium block mb-1.5 mt-5" style={{ color: T.textMute }}>Add passive income a month</label>
+        <Input T={T} value={extraPassive} onChange={setExtraPassive} placeholder={`e.g. 80000 in ${base}`} type="number" />
+        <label className="text-xs font-medium block mb-1.5 mt-3" style={{ color: T.textMute }}>Put extra on your debt a month</label>
+        <Input T={T} value={extraDebt} onChange={setExtraDebt} placeholder={`e.g. 25000 in ${base}`} type="number" />
+
+        {touched && <ScenarioDelta T={T} plain={plain} scenario={f} fmt={fmt} monthLabel={monthLabel} horizon={horizon} />}
+      </div>
+
+      <div className="rounded-2xl p-5" style={T.card}>
+        <div className="flex items-center gap-2 mb-1"><Target className="w-4 h-4" style={{ color: T.accent }} /><h3 className="font-semibold" style={{ color: T.textMain }}>What would this cost me</h3></div>
+        <p className="text-xs mb-3" style={{ color: T.textFaint }}>Thinking about buying something. Put the price in and MiFi tells you what it really costs you, in time.</p>
+        <Input T={T} value={askAmount} onChange={setAskAmount} placeholder={`Amount in ${base}`} type="number" />
+        {cost && cost.ready && (
+          <div className="rounded-xl p-4 mt-3" style={{ background: T.innerBg }}>
+            <p className="text-sm leading-relaxed" style={{ color: T.textSoft }}>
+              {money(num(askAmount), base, 0)} is <span style={{ color: T.accentText, fontWeight: 600 }}>{cost.monthsOfExpense ? `${cost.monthsOfExpense.toFixed(1)} months` : 'a chunk'}</span> of everything you normally spend
+              {cost.weeksOfNet ? <>, and it takes <span style={{ color: T.accentText, fontWeight: 600 }}>{cost.weeksOfNet.toFixed(1)} weeks</span> of what you keep to earn back</> : null}.
+            </p>
+            {cost.pushesCashNegative && <p className="text-sm mt-2 font-semibold" style={{ color: T.neg }}>It also runs you out of money before the end of this forecast. Do not do this one.</p>}
+            {!cost.pushesCashNegative && cost.weeksOfNet === null && <p className="text-sm mt-2" style={{ color: T.neg }}>You are not keeping anything most months, so this comes out of savings or debt.</p>}
+          </div>
+        )}
+      </div>
+
+      {f.drift.length > 0 && (
+        <div className="rounded-2xl p-5" style={{ ...T.card, border: `1px solid ${hexA('#f59e0b', 0.3)}` }}>
+          <div className="flex items-center gap-2 mb-3"><AlertTriangle className="w-4 h-4" style={{ color: '#f59e0b' }} /><h3 className="font-semibold" style={{ color: T.textMain }}>Creeping up</h3></div>
+          <div className="space-y-2.5">{f.drift.slice(0, 3).map(d => { const m = catMeta(d.cat); const Icon = m.icon; return (
+            <div key={d.cat} className="flex items-center gap-3 rounded-xl p-2.5" style={{ background: T.innerBg }}>
+              <span className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: hexA(m.color, 0.15) }}><Icon className="w-4 h-4" style={{ color: m.color }} /></span>
+              <div className="min-w-0 flex-1"><p className="text-sm font-medium" style={{ color: T.textSoft }}>{m.label} is up {(d.rise * 100).toFixed(0)}%</p><p className="text-xs" style={{ color: T.textFaint }}>{money(d.latest, base, 0)} last month against {money(d.average, base, 0)} usual{d.sustained ? ', rising three months straight' : ''}</p></div>
+            </div>); })}</div>
+        </div>
+      )}
+
+      <div className="rounded-2xl p-5" style={T.card}>
+        <h3 className="font-semibold mb-2" style={{ color: T.textSoft }}>What this is built on</h3>
+        <ul className="text-xs space-y-1.5 leading-relaxed" style={{ color: T.textMute }}>
+          <li>Your last {Math.min(f.monthsOfData, 6)} finished months, with recent ones counting for more.</li>
+          <li>The month you are in is ignored until it ends, so a half-logged month cannot drag the numbers down.</li>
+          <li>Passive income is held flat. MiFi will not pretend it grows on its own. Move the slider to see what happens if you build it.</li>
+          <li>{inflation > 0 ? `Your spending grows ${inflation}% a year, as you set in Settings.` : 'Prices are assumed to hold steady, which flatters anything past about a year. Set an expected rate in Settings.'}</li>
+          <li>Anything past month 18 is faded on purpose. It is a direction, not a date.</li>
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+function FutureTile({ T, label, value, sub, tone }) {
+  return (<div className="rounded-2xl p-3" style={T.card}><p className="text-xs mb-1" style={{ color: T.textFaint }}>{label}</p><p className="font-bold tabular-nums text-sm leading-tight" style={{ color: tone }}>{value}</p><p className="text-[10px] mt-0.5 leading-tight" style={{ color: T.textFaint }}>{sub}</p></div>);
+}
+
+function ScenarioDelta({ T, plain, scenario, fmt, monthLabel, horizon }) {
+  const a = plain.months[plain.months.length - 1].cash;
+  const b = scenario.months[scenario.months.length - 1].cash;
+  const diff = b - a;
+  const dA = plain.milestones.debtFreeMonth, dB = scenario.milestones.debtFreeMonth;
+  const sA = plain.milestones.solvencyMonth, sB = scenario.milestones.solvencyMonth;
+  const lines = [];
+  if (Math.abs(diff) > 1) lines.push(`${diff > 0 ? 'Puts' : 'Costs'} you ${fmt(Math.abs(diff))} more over ${horizon} months.`);
+  if (dB && dA && dB < dA) lines.push(`Debt free ${dA - dB} month${dA - dB === 1 ? '' : 's'} sooner, ${monthLabel(dB)} instead of ${monthLabel(dA)}.`);
+  if (dB && !dA) lines.push(`Clears your debt by ${monthLabel(dB)}. On your current pace it does not clear inside ${horizon} months.`);
+  if (sB && !sA) lines.push(`Passive income finally covers everything by ${monthLabel(sB)}.`);
+  if (sB && sA && sB < sA) lines.push(`Fully covered ${sA - sB} month${sA - sB === 1 ? '' : 's'} sooner.`);
+  if (!lines.length) return null;
+  return (<div className="rounded-xl p-3.5 mt-4" style={{ background: hexA(T.pos, 0.1), border: `1px solid ${hexA(T.pos, 0.3)}` }}><p className="text-xs font-semibold mb-1" style={{ color: T.pos }}>If you did this</p>{lines.map((l, i) => <p key={i} className="text-sm leading-relaxed" style={{ color: T.textSoft }}>{l}</p>)}</div>);
+}
+
+function FutureChart({ T, months, mode, base, tracksBalance }) {
+  const W = 320, H = 132, PL = 4, PR = 4, PT = 10, PB = 16;
+  const pick = (m) => mode === 'cash' ? m.cash : mode === 'solvency' ? Math.min(m.solvencyPassive, 200) : m.debtRemaining;
+  const vals = months.map(pick);
+  const lows = mode === 'cash' ? months.map(m => m.cashLow) : vals;
+  const highs = mode === 'cash' ? months.map(m => m.cashHigh) : vals;
+  let lo = Math.min(...lows, mode === 'solvency' ? 0 : 0);
+  let hi = Math.max(...highs, mode === 'solvency' ? 100 : 1);
+  if (hi === lo) hi = lo + 1;
+  const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
+  const X = (i) => PL + (i / Math.max(1, months.length - 1)) * (W - PL - PR);
+  const Y = (v) => (H - PB) - ((v - lo) / (hi - lo)) * (H - PT - PB);
+  const path = (arr) => arr.map((v, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+  const cone = mode === 'cash'
+    ? `${path(highs)} ${lows.map((v, i) => `L${X(lows.length - 1 - i).toFixed(1)} ${Y(lows[lows.length - 1 - i]).toFixed(1)}`).join(' ')} Z`
+    : null;
+  const zeroY = (lo < 0 && hi > 0) ? Y(0) : null;
+  const goalY = (mode === 'solvency' && hi >= 100 && lo <= 100) ? Y(100) : null;
+  const fadeFrom = months.findIndex(m => m.faded);
+  const endV = vals[vals.length - 1];
+  const label = mode === 'solvency' ? `${endV.toFixed(0)}%` : money(endV, base, 0);
+  return (
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: '100%', height: 148, display: 'block' }}>
+        <defs>
+          <linearGradient id="fline" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor={T.accent} /><stop offset="100%" stopColor={mode === 'debt' ? T.neg : T.pos} /></linearGradient>
+          <linearGradient id="fcone" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={T.accent} stopOpacity="0.22" /><stop offset="100%" stopColor={T.accent} stopOpacity="0.04" /></linearGradient>
+          <linearGradient id="ffade" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor={T.isDark ? '#04111b' : '#eef5f5'} stopOpacity="0" /><stop offset="100%" stopColor={T.isDark ? '#04111b' : '#eef5f5'} stopOpacity="0.62" /></linearGradient>
+        </defs>
+        {cone && <path d={cone} fill="url(#fcone)" />}
+        {zeroY !== null && <line x1={PL} y1={zeroY} x2={W - PR} y2={zeroY} stroke={T.neg} strokeWidth="1" strokeDasharray="3 3" opacity="0.55" />}
+        {goalY !== null && <line x1={PL} y1={goalY} x2={W - PR} y2={goalY} stroke={T.pos} strokeWidth="1" strokeDasharray="3 3" opacity="0.6" />}
+        <path d={path(vals)} fill="none" stroke="url(#fline)" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" style={{ filter: T.isDark ? 'drop-shadow(0 0 5px rgba(33,212,224,0.45))' : 'none' }} />
+        {fadeFrom > 0 && <rect x={X(fadeFrom)} y="0" width={W - X(fadeFrom)} height={H} fill="url(#ffade)" />}
+        <circle cx={X(vals.length - 1)} cy={Y(endV)} r="3.4" fill={mode === 'debt' ? T.neg : T.posBright} opacity={fadeFrom > 0 ? 0.55 : 1} />
+      </svg>
+      <div className="flex items-center justify-between mt-1 px-1">
+        <span className="text-[10px]" style={{ color: T.textFaint }}>{months[0].label}</span>
+        <span className="text-xs font-bold tabular-nums" style={{ color: mode === 'debt' ? T.neg : T.posBright }}>{label}</span>
+        <span className="text-[10px]" style={{ color: T.textFaint }}>{months[months.length - 1].label}</span>
+      </div>
+    </div>
+  );
+}
+
+function forecastHeadline(f, fmt, personality) {
+  const opener = { genZ: 'Okay so,', coolUncle: 'Here is the picture, kiddo.', harsh: 'Look at this.', professional: 'Forecast:', africanParent: 'My child,', naijaHustler: 'Oya check am,', zen: 'Look gently at this.', brother: 'Bro,' }[personality] || '';
+  const m0 = f.months[0];
+  const mo = (n) => (n ? f.months[n - 1].label : null);
+  if (f.milestones.debtStuck) return `${opener} one of your debt payments does not even cover its own interest, so that balance climbs every month no matter what else you do. Nothing else on this screen matters until you raise it.`;
+  if (f.milestones.cashNegativeMonth) return `${opener} at this pace your money runs out around ${mo(f.milestones.cashNegativeMonth)}. That is the thing to fix. Try the sliders below and watch that date move.`;
+  if (m0.net < 0) return `${opener} you are spending ${fmt(Math.abs(m0.net))} more than you bring in each month, so the line below only goes one way. Cutting one of the categories below is the fastest fix.`;
+  const bits = [];
+  if (f.milestones.debtFreeMonth) bits.push(`your debt clears around ${mo(f.milestones.debtFreeMonth)}`);
+  if (f.milestones.solvencyMonth) bits.push(`passive income covers everything by ${mo(f.milestones.solvencyMonth)}`);
+  if (bits.length) return `${opener} keep doing exactly what you are doing and ${bits.join(', and ')}. Keeping ${fmt(m0.net)} a month is what gets you there.`;
+  return `${opener} you keep about ${fmt(m0.net)} a month, which is solid. But passive income is only covering ${m0.solvencyPassive.toFixed(0)}% of your obligations and it is flat, so on current behaviour it never catches up. The passive slider below is the one that changes your life, not the spending ones.`;
+}
+
+// Exported for render tests only. Not used by the app.
+export const __test = { Future, THEMES };

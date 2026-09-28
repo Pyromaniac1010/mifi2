@@ -192,12 +192,15 @@ function runDebts(debts, base, rates, months, { strategy = 'avalanche', extra = 
     }
   }
 
+  const startingDebt = debts.reduce((s, d) => s + conv(d.principal, d.currency || base, base, rates), 0);
   const clearedAt = rows.findIndex(r => r.remaining <= 0.01);
   return {
     rows,
     stuck,
-    debtFreeMonth: clearedAt === -1 ? null : clearedAt + 1,
-    startingDebt: debts.reduce((s, d) => s + conv(d.principal, d.currency || base, base, rates), 0),
+    // Someone with no debt has no debt-free date. Reporting month 1 here
+    // would have the UI congratulate them on clearing nothing.
+    debtFreeMonth: (live.length === 0 || clearedAt === -1) ? null : clearedAt + 1,
+    startingDebt,
   };
 }
 
