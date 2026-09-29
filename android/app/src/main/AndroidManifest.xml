@@ -38,4 +38,18 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Reminders. POST_NOTIFICATIONS is required from Android 13; below that
+         it is granted at install. The alarm permissions let a reminder fire at
+         the time it was set for rather than whenever the system next feels
+         like waking up, which for a bill due tomorrow is the whole point. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <!-- Survive a reboot. Without this every scheduled reminder is silently
+         lost the next time the phone restarts. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- App lock -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 </manifest>

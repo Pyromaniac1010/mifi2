@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Flame, TrendingUp, TrendingDown, Wallet, ChevronDown, ChevronLeft, ChevronRight, Plus, Trash2, Pencil, CreditCard, Calendar, AlertTriangle, MessageCircle, Send, Settings, Home, Receipt, Sparkles, ArrowUpRight, ArrowDownRight, X, User, Moon, Sun, Check, ShoppingCart, Utensils, Car, Zap, Wifi, Tv, ShoppingBag, Heart, Film, Gift, GraduationCap, MoreHorizontal, Briefcase, Music, RefreshCw, Laptop, Store, BarChart3, List, Repeat, Clock, Bell } from 'lucide-react';
-import { Lightbulb, LogOut, ArrowLeft, Route, SlidersHorizontal, Target } from 'lucide-react';
+import { Lightbulb, LogOut, ArrowLeft, Route, SlidersHorizontal, Target, Fingerprint, BellRing } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import Login from './components/Login';
+import Intro, { introSeen } from './components/Intro';
 import { buildForecast, costOfDecision, projectDebts } from './lib/forecast';
 import { isNative, wireBackButton, styleStatusBar } from './lib/native';
+import { biometricStatus, verifyIdentity } from './lib/biometrics';
+import { requestPermission as requestNotifPermission, permissionState as notifPermissionState, scheduleDaily, cancelDaily, scheduleDueReminders, cancelDueReminders, cancelAll as cancelAllReminders } from './lib/reminders';
 import { subscribeTransactions, addTransaction, updateTransaction, deleteTransaction, subscribeDebts, addDebt, updateDebt, deleteDebt, subscribeRecurring, addRecurring, updateRecurring, deleteRecurring, subscribeMessages, addMessage, clearMessages, subscribeBudgetFolders, addBudgetFolder, updateBudgetFolder, deleteBudgetFolder, subscribeProfile, updateProfile, deleteAllUserData } from './lib/db';
 
 const CURRENCIES = [
@@ -101,6 +104,13 @@ export default function App() {
   const [solvencyCap, setSolvencyCap] = useState(true);
   const [defaultView, setDefaultView] = useState('dashboard');
   const [cashBalance, setCashBalance] = useState(0);
+  const [locked, setLocked] = useState(false);
+  const [biom, setBiom] = useState({ available: false, label: null });
+  const [bioLock, setBioLock] = useState(false);
+  const [remindDaily, setRemindDaily] = useState(false);
+  const [remindHour, setRemindHour] = useState(20);
+  const [remindMinute, setRemindMinute] = useState(0);
+  const [remindDue, setRemindDue] = useState(false);
   const [inflation, setInflation] = useState(0);
   const [name, setName] = useState('');
   const [avatar, setAvatar] = useState(0);
@@ -109,6 +119,7 @@ export default function App() {
   const [onboarded, setOnboarded] = useState(false);
   const [profileReady, setProfileReady] = useState(false);
   const [showCur, setShowCur] = useState(false);
+  const [introDone, setIntroDone] = useState(() => introSeen());
   const didInit = useRef(false);
 
   useEffect(() => { fetch('https://open.er-api.com/v6/latest/USD').then(r => r.json()).then(d => { if (d && d.rates) { setRates(d.rates); setUpdated(d.time_last_update_utc); } }).catch(() => {}); }, []);
@@ -134,6 +145,11 @@ export default function App() {
         setBio(p.bio || '');
         setGoal(p.goal || '');
         setCashBalance(Number.isFinite(p.cashBalance) ? p.cashBalance : 0);
+        setBioLock(p.bioLock === true);
+        setRemindDaily(p.remindDaily === true);
+        setRemindHour(Number.isFinite(p.remindHour) ? p.remindHour : 20);
+        setRemindMinute(Number.isFinite(p.remindMinute) ? p.remindMinute : 0);
+        setRemindDue(p.remindDue === true);
         setInflation(Number.isFinite(p.inflation) ? p.inflation : 0);
         setOnboarded(p.onboarded === true || !!(p.name && String(p.name).trim()));
         setProfileReady(true);
@@ -149,20 +165,61 @@ export default function App() {
   useEffect(() => wireBackButton({ getView: () => viewRef.current, setView }), []);
   useEffect(() => { styleStatusBar(T.isDark); }, [T.isDark]);
 
+  // What the phone can actually do, asked once.
+  useEffect(() => { biometricStatus().then(setBiom); }, []);
+
+  // Five idle minutes. With the biometric lock on, the app covers itself and
+  // a fingerprint uncovers it, so the session survives. Without it, there is
+  // nothing to unlock with, so it signs out as before.
   useEffect(() => {
-    if (!user) return;
+    if (!user || locked) return;
     let timer;
-    const reset = () => { clearTimeout(timer); timer = setTimeout(() => logout(), (isNative() ? 60 : 5) * 60 * 1000); };
+    const useLock = bioLock && biom.available;
+    const fire = () => { if (useLock) setLocked(true); else logout(); };
+    const reset = () => { clearTimeout(timer); timer = setTimeout(fire, 5 * 60 * 1000); };
     const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'];
     events.forEach((e) => window.addEventListener(e, reset, { passive: true }));
     reset();
     return () => { clearTimeout(timer); events.forEach((e) => window.removeEventListener(e, reset)); };
-  }, [user]);
+  }, [user, locked, bioLock, biom.available]);
+
+  // Keep scheduled reminders in step with settings and with what is actually
+  // due. Recurring due dates move every time an item is logged or skipped, so
+  // this reruns whenever they change rather than only when a toggle flips.
+  useEffect(() => {
+    if (!user || !isNative()) return;
+    if (remindDaily) scheduleDaily(remindHour, remindMinute); else cancelDaily();
+  }, [user, remindDaily, remindHour, remindMinute]);
+
+  useEffect(() => {
+    if (!user || !isNative()) return;
+    if (!remindDue) { cancelDueReminders(); return; }
+    const items = recur
+      .filter(r => r.type === 'expense')
+      .map(r => ({
+        id: r.id,
+        due: nextDue(r),
+        label: `${r.note || catMeta(r.cat).label}, ${money(r.amount, r.currency || base, 0)}`,
+      }));
+    scheduleDueReminders(items);
+  }, [user, remindDue, recur, base]);
+
+  // Lock the moment the app leaves the foreground, not five minutes later.
+  // Someone handing over their phone should not get a grace period.
+  useEffect(() => {
+    if (!user || !isNative() || !(bioLock && biom.available)) return;
+    const onHide = () => { if (document.visibilityState === 'hidden') setLocked(true); };
+    document.addEventListener('visibilitychange', onHide);
+    return () => document.removeEventListener('visibilitychange', onHide);
+  }, [user, bioLock, biom.available]);
 
   if (loading) return (<div className="min-h-screen flex items-center justify-center text-xl font-semibold" style={{ background: '#04111b', color: '#5fe9f1' }}>Loading MiFi…</div>);
+  // First run on this device: say what MiFi is before asking anyone to sign up.
+  if (!user && !introDone) return <Intro onDone={() => setIntroDone(true)} />;
   if (!user) return <Login />;
 
   const uid = user.uid;
+  if (locked) return <LockScreen T={T} label={biom.label} name={name} onUnlock={() => setLocked(false)} onSignOut={() => { setLocked(false); logout(); }} />;
   if (!profileReady) return (<div className="min-h-screen flex items-center justify-center text-xl font-semibold" style={{ background: '#04111b', color: '#5fe9f1' }}>Loading MiFi…</div>);
   if (!onboarded) return <Onboarding T={T} uid={uid} email={user.email} />;
   const t = totals(txns, base, rates);
@@ -206,7 +263,7 @@ export default function App() {
         {view === 'debts' && <Debts T={T} uid={uid} debts={debts} base={base} rates={rates} fmt={fmt} personality={personality} t={t} strategy={strategy} />}
         {view === 'future' && <Future T={T} uid={uid} txns={txns} debts={debts} base={base} rates={rates} personality={personality} strategy={strategy} cashBalance={cashBalance} inflation={inflation} onNav={setView} />}
         {view === 'mi' && <Mi T={T} uid={uid} t={t} totalDebt={totalDebt} fmt={fmt} personality={personality} messages={messages} base={base} rates={rates} />}
-        {view === 'settings' && <SettingsView T={T} uid={uid} email={user.email} resetPassword={resetPassword} reauth={reauth} reauthGoogle={reauthGoogle} deleteAccount={deleteAccount} provider={user.providerData && user.providerData[0] ? user.providerData[0].providerId : 'password'} name={name} avatar={avatar} bio={bio} goal={goal} base={base} themeName={themeName} personality={personality} strategy={strategy} solvencyCap={solvencyCap} defaultView={defaultView} cashBalance={cashBalance} inflation={inflation} logout={logout} onClose={() => setView('dashboard')} />}
+        {view === 'settings' && <SettingsView T={T} uid={uid} email={user.email} resetPassword={resetPassword} reauth={reauth} reauthGoogle={reauthGoogle} deleteAccount={deleteAccount} provider={user.providerData && user.providerData[0] ? user.providerData[0].providerId : 'password'} name={name} avatar={avatar} bio={bio} goal={goal} base={base} themeName={themeName} personality={personality} strategy={strategy} solvencyCap={solvencyCap} defaultView={defaultView} cashBalance={cashBalance} inflation={inflation} biom={biom} bioLock={bioLock} remindDaily={remindDaily} remindHour={remindHour} remindMinute={remindMinute} remindDue={remindDue} recur={recur} logout={logout} onClose={() => setView('dashboard')} />}
       </main>
 
       <nav className="fixed bottom-0 inset-x-0 z-40" style={{ background: T.navBg, backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', borderTop: `1px solid ${T.border}` }}>
@@ -620,10 +677,28 @@ function Mi({ T, uid, t, totalDebt, fmt, personality, messages, base, rates }) {
 }
 
 // ---------- SETTINGS ----------
-function SettingsView({ T, uid, email, resetPassword, reauth, reauthGoogle, deleteAccount, provider, name, avatar, bio, goal, base, themeName, personality, strategy, solvencyCap, defaultView, cashBalance, inflation, logout, onClose }) {
+function SettingsView({ T, uid, email, resetPassword, reauth, reauthGoogle, deleteAccount, provider, name, avatar, bio, goal, base, themeName, personality, strategy, solvencyCap, defaultView, cashBalance, inflation, biom, bioLock, remindDaily, remindHour, remindMinute, remindDue, recur, logout, onClose }) {
   const [nameDraft, setNameDraft] = useState(name || '');
   const [savedName, setSavedName] = useState(false);
   const [avOpen, setAvOpen] = useState(false);
+  const [notifPerm, setNotifPerm] = useState('unavailable');
+  const [notifBusy, setNotifBusy] = useState(false);
+  useEffect(() => { notifPermissionState().then(setNotifPerm); }, []);
+  const turnOnDaily = async () => {
+    setNotifBusy(true);
+    const p = await requestNotifPermission();
+    setNotifPerm(p);
+    setNotifBusy(false);
+    if (p === 'granted') updateProfile(uid, { remindDaily: true });
+  };
+  const turnOnDue = async () => {
+    setNotifBusy(true);
+    const p = await requestNotifPermission();
+    setNotifPerm(p);
+    setNotifBusy(false);
+    if (p === 'granted') updateProfile(uid, { remindDue: true });
+  };
+  const dueCountForNotif = (recur || []).filter(r => r.type === 'expense').length;
   const [cleared, setCleared] = useState(false);
   const [bioDraft, setBioDraft] = useState(bio || '');
   const [goalDraft, setGoalDraft] = useState(goal || '');
@@ -690,6 +765,57 @@ function SettingsView({ T, uid, email, resetPassword, reauth, reauthGoogle, dele
       <Section T={T} icon={<Lightbulb className="w-4 h-4" />} title="How MiFi works">
         {[['Solvency score', 'How close your income is to covering your monthly obligations. 100% means fully covered. The long-term goal is passive income doing that job, not your salary.'], ['Transactions', 'Log income and expenses. MiFi uses them for your net, cash-flow chart, and advice. Tap Select to delete or recategorize several at once.'], ['Debts', 'Add each debt with its rate and payment. MiFi shows your payoff date, how much of each payment is interest, and which to clear first. It warns if a balance is quietly growing.'], ['Budget folders', 'Group planned spending into folders (a month, a trip, a purchase). Each folder tells you if it fits your spare money and what to commit or hold.'], ['Future', 'Projects where your current habits lead: when your debt clears, when passive income covers everything, and how long you would last if income stopped. It needs three finished months before it will draw anything, because less than that is guesswork. The what-if sliders let you test a change before you make it.'], ['MiFi advisor', 'Reads your real numbers and gives a plain-language take. Eight personalities, switched with the gear icon in the MiFi tab.'], ['Currencies', 'Set your base currency in this screen and everything converts to it. 37 supported.'], ['Your data', 'Everything is private to your account. Reset your password or delete your account and all its data below.']].map(([q, a]) => (<details key={q} className="rounded-xl mb-2" style={{ background: T.innerBg, border: `1px solid ${T.border}` }}><summary className="px-3 py-2.5 text-sm font-semibold" style={{ color: T.textSoft, cursor: 'pointer' }}>{q}</summary><p className="px-3 pb-3 text-xs leading-relaxed" style={{ color: T.textMute }}>{a}</p></details>))}
       </Section>
+
+      {isNative() && (
+      <Section T={T} icon={<BellRing className="w-4 h-4" />} title="Reminders">
+        {notifPerm === 'denied' && (
+          <div className="rounded-xl p-3 mb-3" style={{ background: hexA(T.neg, 0.1), border: `1px solid ${hexA(T.neg, 0.3)}` }}>
+            <p className="text-xs leading-relaxed" style={{ color: T.textSoft }}>Notifications are blocked for MiFi. Turn them back on in your phone's Settings, under Apps, MiFi, Notifications.</p>
+          </div>
+        )}
+        <Toggle T={T} on={remindDaily} busy={notifBusy}
+          title="Daily nudge"
+          sub={remindDaily ? `Every day at ${String(remindHour).padStart(2, '0')}:${String(remindMinute).padStart(2, '0')}` : 'A quiet reminder to log the day'}
+          onToggle={() => remindDaily ? updateProfile(uid, { remindDaily: false }) : turnOnDaily()} />
+        {remindDaily && (
+          <div className="flex items-center gap-2 mt-2 mb-1">
+            <span className="text-xs" style={{ color: T.textMute }}>At</span>
+            <input type="time" value={`${String(remindHour).padStart(2, '0')}:${String(remindMinute).padStart(2, '0')}`}
+              onChange={e => { const [h, m] = e.target.value.split(':').map(Number); if (Number.isFinite(h) && Number.isFinite(m)) updateProfile(uid, { remindHour: h, remindMinute: m }); }}
+              className="px-3 py-2 rounded-xl outline-none text-sm font-medium"
+              style={{ background: T.inputBg, border: `1px solid ${T.inputBorder}`, color: T.textMain }} />
+          </div>
+        )}
+        <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${T.border}` }}>
+          <Toggle T={T} on={remindDue} busy={notifBusy}
+            title="Bills due tomorrow"
+            sub={dueCountForNotif > 0 ? `${dueCountForNotif} recurring item${dueCountForNotif === 1 ? '' : 's'}, reminded the day before at 9am` : 'Add recurring items and MiFi will warn you the day before'}
+            onToggle={() => remindDue ? updateProfile(uid, { remindDue: false }) : turnOnDue()} />
+        </div>
+        <div className="rounded-xl p-3 mt-3" style={{ background: T.innerBg, border: `1px solid ${T.border}` }}>
+          <p className="text-xs font-semibold mb-1" style={{ color: T.textSoft }}>If reminders never arrive</p>
+          <p className="text-xs leading-relaxed" style={{ color: T.textMute }}>Many Android phones, Tecno and Infinix especially, kill background apps to save battery. Open your phone's Settings, find Apps, then MiFi, then Battery, and set it to Unrestricted. Nothing in this app can override that.</p>
+        </div>
+      </Section>
+      )}
+
+      {isNative() && (
+      <Section T={T} icon={<Fingerprint className="w-4 h-4" />} title="App lock">
+        {biom && biom.available ? (<>
+          <Toggle T={T} on={bioLock}
+            title={`Unlock with ${biom.label}`}
+            sub={bioLock ? 'Locks after 5 idle minutes, and whenever you leave the app' : 'Signs you out after 5 idle minutes instead'}
+            onToggle={() => updateProfile(uid, { bioLock: !bioLock })} />
+          <p className="text-xs mt-3 leading-relaxed" style={{ color: T.textFaint }}>Your {biom.label} never leaves the phone and is not sent to MiFi. It only uncovers a session you are already signed into. With this off, five idle minutes signs you out properly and you type your password again.</p>
+        </>) : (
+          <p className="text-xs leading-relaxed" style={{ color: T.textMute }}>
+            {biom && biom.notEnrolled
+              ? 'This phone supports it, but no fingerprint or face is set up yet. Add one in your phone settings and this option appears.'
+              : 'This phone does not offer fingerprint or face unlock, so MiFi signs you out after 5 idle minutes instead.'}
+          </p>
+        )}
+      </Section>
+      )}
 
       <Section T={T} icon={T.isDark ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />} title="Appearance">
         <div className="grid grid-cols-2 gap-2">
@@ -1371,4 +1497,59 @@ function forecastHeadline(f, fmt, personality) {
 }
 
 // Exported for render tests only. Not used by the app.
-export const __test = { Future, THEMES, SettingsView, Dashboard, Budget, Debts, Avatar };
+export const __test = { Future, THEMES, SettingsView, Dashboard, Budget, Debts, Avatar, LockScreen };
+
+// ---------- LOCK SCREEN ----------
+// Covers everything after the app has been idle or backgrounded. The session
+// is still live underneath; this is a curtain, not a sign-out.
+function LockScreen({ T, label, name, onUnlock, onSignOut }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const tried = useRef(false);
+
+  const attempt = async () => {
+    if (busy) return;
+    setBusy(true); setMsg('');
+    const r = await verifyIdentity(label);
+    setBusy(false);
+    if (r.ok) { onUnlock(); return; }
+    // Backing out is a choice, not a failure, and a missing sensor is not
+    // the user's fault either. Only a real mismatch gets a message.
+    setMsg(r.cancelled || r.reason === 'web' ? '' : 'That did not match. Try again.');
+  };
+
+  // Prompt straight away, so the usual case is: open app, thumb, in.
+  useEffect(() => { if (!tried.current) { tried.current = true; attempt(); } }, []);
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center px-8" style={{ background: T.pageBg, color: T.textMain }}>
+      <MiFiAvatar size={64} />
+      <h1 className="text-xl font-bold mt-4">MiFi is locked</h1>
+      <p className="text-sm mt-1.5 text-center" style={{ color: T.textMute }}>
+        {name ? `Welcome back, ${name}.` : 'Welcome back.'} Confirm it is you to carry on.
+      </p>
+      {msg && <p className="text-sm mt-3" style={{ color: T.neg }}>{msg}</p>}
+      <button onClick={attempt} disabled={busy} className="mt-7 w-full max-w-xs py-3.5 rounded-xl font-semibold flex items-center justify-center gap-2 disabled:opacity-60" style={{ background: T.accent, color: T.accentBtnText, ...T.glow }}>
+        <Fingerprint className="w-5 h-5" />
+        {busy ? 'Waiting' : `Unlock with ${label || 'fingerprint'}`}
+      </button>
+      <button onClick={onSignOut} className="mt-3 text-sm font-medium py-2" style={{ color: T.textMute }}>
+        Sign out instead
+      </button>
+    </div>
+  );
+}
+
+function Toggle({ T, on, title, sub, onToggle, busy }) {
+  return (
+    <button onClick={onToggle} disabled={busy} className="w-full flex items-center gap-3 text-left disabled:opacity-60">
+      <span className="flex-1 min-w-0">
+        <span className="block text-sm font-semibold" style={{ color: T.textMain }}>{title}</span>
+        {sub && <span className="block text-xs mt-0.5 leading-snug" style={{ color: T.textFaint }}>{sub}</span>}
+      </span>
+      <span className="w-11 h-6 rounded-full p-0.5 shrink-0 transition-all" style={{ background: on ? T.accent : T.barTrack }}>
+        <span className="block w-5 h-5 rounded-full bg-white transition-transform" style={{ transform: on ? 'translateX(20px)' : 'none' }} />
+      </span>
+    </button>
+  );
+}
